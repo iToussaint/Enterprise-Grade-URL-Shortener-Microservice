@@ -1,0 +1,38 @@
+# Local development environment: Flask dev server with hot reload, plus Redis.
+# The production command (Gunicorn) is the Dockerfile's default CMD.
+services:
+  app:
+    build: .
+    command: flask --app app run --debug --host 0.0.0.0 --port 8000
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount the source code so edits on the host reload the server.
+      - ./app:/app/app
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:8.10-alpine
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    environment:
+      # redis-cli reads this automatically, so the healthcheck and
+      # `docker compose exec redis redis-cli` authenticate without -a.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  redis-data:
