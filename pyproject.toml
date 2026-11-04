@@ -1,0 +1,47 @@
+[project]
+name = "url-shortener"
+version = "0.1.0"
+description = "URL shortener microservice built with Flask, Flask-RESTX and Redis"
+authors = [{ name = "Toussaint Iradukunda", email = "toussaint.iradukunda@amalitech.com" }]
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = []
+
+[tool.poetry]
+package-mode = false
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.2.0,<10.0.0)",
+    "black (>=26.10.1,<27.0.0)",
+    "ruff (>=0.17.4,<0.18.0)",
+    "mypy (>=2.4.1,<3.0.0)",
+    "pre-commit (>=4.7.0,<5.0.0)"
+]
