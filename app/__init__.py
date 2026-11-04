@@ -1,7 +1,10 @@
 import decouple
 from flask import Flask
+from flask_injector import FlaskInjector
+from injector import Injector
 
 from app.config import config_by_name
+from app.dependencies import RedisModule
 from app.shortener import shortener_bp
 
 
@@ -18,5 +21,10 @@ def create_app(config_name: str | None = None) -> Flask:
     app.config.from_object(config_by_name[config_name])
 
     app.register_blueprint(shortener_bp)
+
+    # Must come last: FlaskInjector only wraps views that are already registered.
+    injector = Injector([RedisModule()])
+    FlaskInjector(app=app, injector=injector)
+    app.extensions["injector"] = injector
 
     return app

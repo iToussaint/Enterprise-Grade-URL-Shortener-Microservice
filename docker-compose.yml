@@ -5,6 +5,9 @@ services:
     build: .
     command: flask --app app run --debug --host 0.0.0.0 --port 8000
     env_file: .env
+    environment:
+      # Inside the Compose network Redis is reached by its service name.
+      REDIS_HOST: redis
     ports:
       - "8000:8000"
     volumes:
@@ -26,6 +29,9 @@ services:
       # redis-cli reads this automatically, so the healthcheck and
       # `docker compose exec redis redis-cli` authenticate without -a.
       REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      # Published on localhost only, for local runs and RedisInsight.
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     healthcheck:
