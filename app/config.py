@@ -6,8 +6,10 @@ class Config:
     TESTING = False
 
     # Flask-RESTX: don't append "did you mean ..." hints to 404 messages,
+    # don't add its own top-level "message" key to our error bodies,
     # and don't advertise the X-Fields mask header in Swagger.
     RESTX_ERROR_404_HELP = False
+    ERROR_INCLUDE_MESSAGE = False
     RESTX_MASK_SWAGGER = False
 
     REDIS_HOST: str = decouple.config("REDIS_HOST", default="localhost")
