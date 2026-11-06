@@ -5,6 +5,7 @@ from injector import Injector
 
 from app.config import config_by_name
 from app.dependencies import RedisModule
+from app.errors import register_app_error_handlers
 from app.shortener import shortener_bp
 
 
@@ -21,6 +22,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.config.from_object(config_by_name[config_name])
 
     app.register_blueprint(shortener_bp)
+    register_app_error_handlers(app)
 
     # Must come last: FlaskInjector only wraps views that are already registered.
     injector = Injector([RedisModule()])
