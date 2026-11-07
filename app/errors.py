@@ -2,11 +2,11 @@ from typing import Any
 
 from flask import Flask, current_app
 from flask_restx import Api
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from redis.exceptions import RedisError
 from werkzeug.exceptions import HTTPException
 
-ErrorResponse = tuple[dict[str, Any], int]
+HandlerResult = tuple[dict[str, Any], int]
 
 
 class ShortCodeNotFoundError(Exception):
@@ -19,27 +19,62 @@ class ShortCodeGenerationError(Exception):
     """Raised when no unused short code could be found after several attempts."""
 
 
-def error_body(
-    code: str, message: str, details: list[dict[str, str]] | None = None
-) -> dict[str, Any]:
-    error: dict[str, Any] = {"code": code, "message": message}
-    if details:
-        error["details"] = details
-    return {"error": error}
+# These models define the error format once: error_body() builds every error
+# response through them, and Swagger documents them.
+class ErrorDetail(BaseModel):
+    field: str = Field(description="The invalid field, or 'body' for the whole body.")
+    message: str = Field(description="Why the value was rejected.")
 
 
-def handle_validation_error(error: ValidationError) -> ErrorResponse:
-    details = [
-        {
-            "field": ".".join(str(part) for part in item["loc"]) or "body",
-            "message": item["msg"],
+class ErrorBody(BaseModel):
+    code: str = Field(description="Machine-readable error code, e.g. 'not_found'.")
+    message: str = Field(description="Human-readable explanation.")
+    details: list[ErrorDetail] = Field(
+        default=[], description="Field-level problems (validation errors only)."
+    )
+
+
+class ErrorResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "error": {
+                    "code": "validation_error",
+                    "message": "Request validation failed.",
+                    "details": [
+                        {
+                            "field": "url",
+                            "message": "URL scheme should be 'http' or 'https'",
+                        }
+                    ],
+                }
+            }
         }
+    )
+
+    error: ErrorBody
+
+
+def error_body(
+    code: str, message: str, details: list[ErrorDetail] | None = None
+) -> dict[str, Any]:
+    body = ErrorBody(code=code, message=message, details=details or [])
+    # exclude_defaults drops "details" when it is empty.
+    return ErrorResponse(error=body).model_dump(exclude_defaults=True)
+
+
+def handle_validation_error(error: ValidationError) -> HandlerResult:
+    details = [
+        ErrorDetail(
+            field=".".join(str(part) for part in item["loc"]) or "body",
+            message=item["msg"],
+        )
         for item in error.errors()
     ]
     return error_body("validation_error", "Request validation failed.", details), 422
 
 
-def handle_not_found(error: ShortCodeNotFoundError) -> ErrorResponse:
+def handle_not_found(error: ShortCodeNotFoundError) -> HandlerResult:
     return error_body("not_found", str(error)), 404
 
 
@@ -62,21 +97,21 @@ def handle_http_exception(
 # real cause, so hostnames and internals are not exposed to clients.
 
 
-def handle_generation_error(error: ShortCodeGenerationError) -> ErrorResponse:
+def handle_generation_error(error: ShortCodeGenerationError) -> HandlerResult:
     message = "Could not generate a short code. Please try again."
     return error_body("service_unavailable", message), 503
 
 
-def handle_storage_error(error: RedisError) -> ErrorResponse:
+def handle_storage_error(error: RedisError) -> HandlerResult:
     message = "The storage service is temporarily unavailable. Please try again."
     return error_body("service_unavailable", message), 503
 
 
-def handle_unexpected_error(error: Exception) -> ErrorResponse:
+def handle_unexpected_error(error: Exception) -> HandlerResult:
     return error_body("internal_server_error", "An unexpected error occurred."), 500
 
 
-def handle_unexpected_app_error(error: Exception) -> ErrorResponse:
+def handle_unexpected_app_error(error: Exception) -> HandlerResult:
     # Outside Flask-RESTX nothing logs a handled exception, so we do it here.
     current_app.logger.exception("Unhandled exception: %s", error)
     return handle_unexpected_error(error)
