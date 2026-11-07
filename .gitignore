@@ -1,0 +1,25 @@
+# Private assignment briefs (kept local)
+About-Project.md
+instructions.md
+LAB 1_ URL Shortener Microservice (Flask).pdf
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Environment variables and secrets
+.env
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
