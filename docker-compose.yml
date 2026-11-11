@@ -1,23 +1,53 @@
-# Local development environment: Flask dev server with hot reload, plus Redis.
+# Local development environment: Flask dev server with hot reload,
+# PostgreSQL and Redis.
 # The production command (Gunicorn) is the Dockerfile's default CMD.
 services:
   app:
     build: .
-    command: flask --app app run --debug --host 0.0.0.0 --port 8000
+    # Apply pending migrations, then start the dev server. In production,
+    # migrations are a separate deployment step, not part of each worker's start.
+    command:
+      - sh
+      - -c
+      - flask --app app db upgrade && exec flask --app app run --debug --host 0.0.0.0 --port 8000
     env_file: .env
     environment:
       # This stack is the development environment, whatever .env says.
       APP_ENV: development
-      # Inside the Compose network Redis is reached by its service name.
+      # Inside the Compose network each service is reached by its name.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-urlshortener}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-urlshortener}
       REDIS_HOST: redis
     ports:
       - "8000:8000"
     volumes:
-      # Mount the source code so edits on the host reload the server.
+      # Mount the code and migrations so edits on the host reload the server
+      # and migrations generated in the container appear on the host.
       - ./app:/app/app
+      - ./migrations:/app/migrations
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
+
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-urlshortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-urlshortener}
+    ports:
+      # Published on localhost only, for local runs and database tools.
+      # Set POSTGRES_HOST_PORT if 5432 is taken (e.g. by a local PostgreSQL).
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 images keep their data under /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   redis:
     image: redis:8.10-alpine
@@ -43,4 +73,5 @@ services:
       retries: 5
 
 volumes:
+  postgres-data:
   redis-data:

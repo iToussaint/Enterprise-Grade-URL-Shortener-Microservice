@@ -1,12 +1,12 @@
-# Only pyproject.toml, poetry.lock and app/ are needed in the build context.
+# Only pyproject.toml, poetry.lock, app/ and migrations/ are needed in the build context.
 .git
 .github
 .venv
 .env
 .idea
 .vscode
-__pycache__/
-*.py[cod]
+**/__pycache__
+**/*.py[cod]
 .mypy_cache
 .ruff_cache
 .pytest_cache

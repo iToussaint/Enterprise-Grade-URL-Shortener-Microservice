@@ -12,6 +12,12 @@ class Config:
     ERROR_INCLUDE_MESSAGE = False
     RESTX_MASK_SWAGGER = False
 
+    # postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DATABASE
+    SQLALCHEMY_DATABASE_URI: str | None = decouple.config("DATABASE_URL", default=None)
+    # Test each pooled connection before use, so a restarted database
+    # does not turn the first requests afterwards into errors.
+    SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
+
     REDIS_HOST: str = decouple.config("REDIS_HOST", default="localhost")
     REDIS_PORT: int = decouple.config("REDIS_PORT", default=6379, cast=int)
     REDIS_PASSWORD: str | None = decouple.config("REDIS_PASSWORD", default=None)

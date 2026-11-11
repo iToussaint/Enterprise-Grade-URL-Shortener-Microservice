@@ -4,7 +4,7 @@ import re
 import pytest
 from flask.testing import FlaskClient
 
-from app import create_app
+from tests.conftest import AppFactory
 
 
 def request_log_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -57,8 +57,8 @@ def test_query_string_is_not_logged(
     assert "secret-value" not in " ".join(request_log_lines(caplog))
 
 
-def test_app_logger_emits_info_in_production() -> None:
+def test_app_logger_emits_info_in_production(make_app: AppFactory) -> None:
     # Guards against INFO logs silently disappearing under Gunicorn.
-    app = create_app("production")
+    app = make_app("production")
 
     assert app.logger.isEnabledFor(logging.INFO)

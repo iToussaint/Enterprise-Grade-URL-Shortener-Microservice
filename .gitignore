@@ -8,8 +8,9 @@ Module-6.md
 __pycache__/
 *.py[cod]
 
-# Virtual environment
+# Virtual environment and machine-specific Poetry settings
 .venv/
+poetry.toml
 
 # Environment variables and secrets
 .env

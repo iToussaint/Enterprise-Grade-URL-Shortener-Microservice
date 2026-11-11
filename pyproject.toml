@@ -13,6 +13,9 @@ dependencies = [
     "flask-injector (>=0.15.0,<0.16.0)",
     "redis (>=8.1.0,<9.0.0)",
     "pydantic (>=2.14.3,<3.0.0)",
+    "flask-sqlalchemy (>=3.1.1,<4.0.0)",
+    "flask-migrate (>=4.1.0,<5.0.0)",
+    "psycopg2-binary (>=2.9.13,<3.0.0)",
 ]
 
 [tool.poetry]
@@ -36,10 +39,12 @@ disallow_untyped_defs = true
 warn_unused_ignores = true
 warn_return_any = true
 no_implicit_optional = true
+# Alembic's generated migration environment and scripts are not type-annotated.
+exclude = ["^migrations/"]
 
 # These libraries ship without type information.
 [[tool.mypy.overrides]]
-module = ["decouple", "flask_injector", "flask_restx.*", "jsonschema"]
+module = ["decouple", "flask_injector", "flask_migrate", "flask_restx.*", "jsonschema"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -58,5 +63,6 @@ dev = [
     "mypy (>=2.4.1,<3.0.0)",
     "pre-commit (>=4.7.0,<5.0.0)",
     "fakeredis (>=2.40.0,<3.0.0)",
-    "jsonschema (>=4.26.0,<5.0.0)"
+    "jsonschema (>=4.26.0,<5.0.0)",
+    "testcontainers[postgres] (>=4.15.0,<5.0.0)"
 ]

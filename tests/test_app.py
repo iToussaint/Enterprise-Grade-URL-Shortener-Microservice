@@ -3,6 +3,7 @@ import pytest
 from flask.testing import FlaskClient
 
 from app import create_app
+from tests.conftest import AppFactory
 
 
 @pytest.mark.parametrize(
@@ -14,26 +15,33 @@ from app import create_app
     ],
 )
 def test_create_app_applies_selected_config(
-    config_name: str, expected_debug: bool, expected_testing: bool
+    make_app: AppFactory,
+    config_name: str,
+    expected_debug: bool,
+    expected_testing: bool,
 ) -> None:
-    app = create_app(config_name)
+    app = make_app(config_name)
 
     assert app.config["DEBUG"] is expected_debug
     assert app.config["TESTING"] is expected_testing
 
 
-def test_create_app_reads_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_app_reads_app_env(
+    make_app: AppFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("APP_ENV", "development")
 
-    assert create_app().config["DEBUG"] is True
+    assert make_app(None).config["DEBUG"] is True
 
 
-def test_create_app_defaults_to_production(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_app_defaults_to_production(
+    make_app: AppFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # Ignore any local .env file so only the code default applies.
     monkeypatch.delenv("APP_ENV", raising=False)
     monkeypatch.setattr(decouple, "config", decouple.Config(decouple.RepositoryEmpty()))
 
-    assert create_app().config["DEBUG"] is False
+    assert make_app(None).config["DEBUG"] is False
 
 
 def test_create_app_rejects_unknown_config() -> None:
