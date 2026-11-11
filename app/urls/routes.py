@@ -3,46 +3,18 @@ from typing import Any
 from flask import redirect
 from flask_restx import Namespace, Resource
 from injector import inject
-from pydantic import BaseModel
 from werkzeug.wrappers import Response
 
-from app.errors import ErrorResponse
-from app.shortener.schemas import ShortenRequest, ShortenResponse
-from app.shortener.service import UrlShortenerService
+from app.core.errors import ErrorResponse
+from app.core.swagger import register_schema
+from app.urls.schemas import ShortenRequest, ShortenResponse
+from app.urls.service import UrlShortenerService
 
 ns = Namespace("urls", path="/", description="Create short URLs and follow them")
 
-
-def inline_references(node: Any, definitions: dict[str, Any]) -> Any:
-    """Replace every {"$ref": "#/$defs/Name"} with the definition it points to."""
-    if isinstance(node, dict):
-        if "$ref" in node:
-            name = node["$ref"].rsplit("/", 1)[-1]
-            return inline_references(definitions[name], definitions)
-        return {
-            key: inline_references(value, definitions) for key, value in node.items()
-        }
-    if isinstance(node, list):
-        return [inline_references(item, definitions) for item in node]
-    return node
-
-
-def register_schema(model: type[BaseModel]) -> Any:
-    """Register a Pydantic model's JSON Schema as a Swagger definition.
-
-    Swagger shows the schema Pydantic generates, so the documented schema and the
-    validation rules come from the same model. Nested models are inlined because
-    Flask-RESTX only publishes models that are referenced directly; it does not
-    follow "$ref"s inside a raw JSON Schema.
-    """
-    schema = model.model_json_schema()
-    definitions = schema.pop("$defs", {})
-    return ns.schema_model(model.__name__, inline_references(schema, definitions))
-
-
-shorten_request_model = register_schema(ShortenRequest)
-shorten_response_model = register_schema(ShortenResponse)
-error_model = register_schema(ErrorResponse)
+shorten_request_model = register_schema(ns, ShortenRequest)
+shorten_response_model = register_schema(ns, ShortenResponse)
+error_model = register_schema(ns, ErrorResponse)
 
 
 @ns.route("/urls")

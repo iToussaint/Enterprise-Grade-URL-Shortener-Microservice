@@ -1,10 +1,10 @@
 from flask import Blueprint
 from flask_restx import Api
 
-from app.errors import register_error_handlers
-from app.shortener.routes import ns
+from app.core.errors import register_error_handlers
+from app.urls.routes import ns as urls_ns
 
-shortener_bp = Blueprint("shortener", __name__, url_prefix="/api")
+api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 API_DESCRIPTION = """
 Shorten long URLs and redirect short codes to the original URL.
@@ -19,11 +19,11 @@ Shorten long URLs and redirect short codes to the original URL.
 """
 
 api = Api(
-    shortener_bp,
+    api_bp,
     title="URL Shortener API",
     version="1.0",
     description=API_DESCRIPTION,
     doc="/docs",
 )
-api.add_namespace(ns)
+api.add_namespace(urls_ns)
 register_error_handlers(api)

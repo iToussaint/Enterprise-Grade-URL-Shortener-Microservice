@@ -5,11 +5,11 @@ from flask import Flask
 from flask_injector import FlaskInjector
 from injector import Injector
 
-from app.config import config_by_name
-from app.dependencies import RedisModule
-from app.errors import register_app_error_handlers
-from app.middleware import register_request_logging
-from app.shortener import shortener_bp
+from app.api import api_bp
+from app.core.config import config_by_name
+from app.core.dependencies import RedisModule
+from app.core.errors import register_app_error_handlers
+from app.core.middleware import register_request_logging
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -26,7 +26,7 @@ def create_app(config_name: str | None = None) -> Flask:
     # Without this, Python's default WARNING level hides INFO logs under Gunicorn.
     app.logger.setLevel(logging.INFO)
 
-    app.register_blueprint(shortener_bp)
+    app.register_blueprint(api_bp)
     register_app_error_handlers(app)
     register_request_logging(app)
 

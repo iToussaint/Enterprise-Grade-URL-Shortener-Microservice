@@ -26,7 +26,8 @@ repos:
 
       - id: mypy
         name: mypy
-        entry: poetry run mypy .
+        # Run as a module: Windows Application Control can block the mypy.exe launcher.
+        entry: poetry run python -m mypy .
         language: system
         types: [python]
         pass_filenames: false

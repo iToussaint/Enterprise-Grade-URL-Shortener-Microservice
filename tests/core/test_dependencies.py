@@ -5,8 +5,8 @@ from flask_restx import Api, Resource
 from injector import Binder, Injector, inject
 from redis import Redis
 
-from app.dependencies import RedisModule
-from app.shortener.service import UrlShortenerService
+from app.core.dependencies import RedisModule
+from app.urls.service import UrlShortenerService
 
 
 def test_injector_builds_service_with_redis(

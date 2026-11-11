@@ -4,7 +4,7 @@ import string
 from injector import inject
 from redis import Redis
 
-from app.errors import ShortCodeGenerationError, ShortCodeNotFoundError
+from app.core.errors import ShortCodeGenerationError, ShortCodeNotFoundError
 
 CODE_ALPHABET = string.ascii_letters + string.digits
 CODE_LENGTH = 7

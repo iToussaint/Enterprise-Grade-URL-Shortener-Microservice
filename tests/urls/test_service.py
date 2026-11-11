@@ -1,9 +1,9 @@
 import pytest
 from fakeredis import FakeRedis
 
-from app.errors import ShortCodeGenerationError, ShortCodeNotFoundError
-from app.shortener import service as service_module
-from app.shortener.service import (
+from app.core.errors import ShortCodeGenerationError, ShortCodeNotFoundError
+from app.urls import service as service_module
+from app.urls.service import (
     CODE_ALPHABET,
     CODE_LENGTH,
     MAX_ATTEMPTS,

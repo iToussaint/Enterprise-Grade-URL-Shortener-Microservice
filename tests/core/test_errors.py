@@ -6,8 +6,8 @@ from flask import Flask
 from flask.testing import FlaskClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from app.errors import ShortCodeGenerationError
-from app.shortener.service import UrlShortenerService
+from app.core.errors import ShortCodeGenerationError
+from app.urls.service import UrlShortenerService
 
 
 def assert_error(response: Any, status: int, code: str) -> dict[str, Any]:
