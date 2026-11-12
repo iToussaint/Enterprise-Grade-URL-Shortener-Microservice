@@ -73,3 +73,10 @@ def app(make_app: AppFactory, redis_client: FakeRedis) -> Iterator[Flask]:
 @pytest.fixture
 def client(app: Flask) -> FlaskClient:
     return app.test_client()
+
+
+@pytest.fixture
+def app_context(app: Flask) -> Iterator[None]:
+    """Run the test inside an application context, so `db.session` is usable."""
+    with app.app_context():
+        yield
