@@ -10,7 +10,6 @@ from injector import Injector
 from app import models  # noqa: F401  (registers every table with SQLAlchemy)
 from app.api import api_bp
 from app.core.config import config_by_name
-from app.core.dependencies import RedisModule
 from app.core.errors import register_app_error_handlers
 from app.core.extensions import db, migrate
 from app.core.middleware import register_request_logging
@@ -47,7 +46,9 @@ def create_app(
     register_request_logging(app)
 
     # Must come last: FlaskInjector only wraps views that are already registered.
-    injector = Injector([RedisModule()])
+    # Services have no bindings to configure: the injector builds them from
+    # their constructors and injects them into the Flask-RESTX resources.
+    injector = Injector()
     FlaskInjector(app=app, injector=injector)
     app.extensions["injector"] = injector
 

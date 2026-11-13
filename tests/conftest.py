@@ -1,11 +1,9 @@
 from collections.abc import Callable, Iterator
 
 import pytest
-from fakeredis import FakeRedis
 from flask import Flask
 from flask.testing import FlaskClient
 from flask_migrate import upgrade
-from redis import Redis
 from sqlalchemy import text
 from testcontainers.community.postgres import PostgresContainer
 
@@ -55,15 +53,8 @@ def make_app(database_url: str) -> Iterator[AppFactory]:
 
 
 @pytest.fixture
-def redis_client() -> FakeRedis:
-    return FakeRedis(decode_responses=True)
-
-
-@pytest.fixture
-def app(make_app: AppFactory, redis_client: FakeRedis) -> Iterator[Flask]:
+def app(make_app: AppFactory) -> Iterator[Flask]:
     app = make_app()
-    # Replace the real Redis binding so tests never need a running Redis server.
-    app.extensions["injector"].binder.bind(Redis, to=redis_client)
     yield app
     # Every test starts from empty tables.
     with app.app_context():

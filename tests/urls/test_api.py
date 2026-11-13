@@ -4,8 +4,12 @@ from typing import Any
 
 import jsonschema
 import pytest
-from fakeredis import FakeRedis
+from flask import Flask
 from flask.testing import FlaskClient
+from sqlalchemy import select
+
+from app.core.extensions import db
+from app.urls.models import URL
 
 LONG_URL = "https://www.example.com/articles/2026/flask-guide"
 
@@ -28,7 +32,7 @@ def assert_matches_definition(spec: dict[str, Any], definition: str, body: Any) 
 
 
 def test_create_short_url_returns_201_with_location(
-    client: FlaskClient, redis_client: FakeRedis
+    app: Flask, client: FlaskClient
 ) -> None:
     response = client.post("/api/urls", json={"url": LONG_URL})
 
@@ -40,7 +44,10 @@ def test_create_short_url_returns_201_with_location(
     assert body["short_url"] == f"http://localhost/api/{short_code}"
     assert body["original_url"] == LONG_URL
     assert response.headers["Location"] == body["short_url"]
-    assert redis_client.get(f"url:{short_code}") == LONG_URL
+    with app.app_context():
+        url = db.session.scalars(select(URL).where(URL.short_code == short_code)).one()
+    assert url.original_url == LONG_URL
+    assert url.owner_id is None
 
 
 def test_create_short_url_stores_normalized_url(client: FlaskClient) -> None:

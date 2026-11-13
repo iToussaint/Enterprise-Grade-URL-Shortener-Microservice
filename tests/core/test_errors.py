@@ -1,11 +1,10 @@
 from typing import Any
 
 import pytest
-from fakeredis import FakeRedis
 from flask import Flask
 from flask.testing import FlaskClient
-from redis.exceptions import ConnectionError as RedisConnectionError
 
+from app import create_app
 from app.core.errors import ShortCodeGenerationError
 from app.urls.service import UrlShortenerService
 
@@ -79,22 +78,18 @@ def test_unexpected_exception_outside_api_returns_500_json_and_logs(
     assert len([record for record in caplog.records if record.exc_info]) == 1
 
 
-def test_redis_unavailable_returns_503_without_leaking_details(
-    client: FlaskClient,
-    redis_client: FakeRedis,
-    monkeypatch: pytest.MonkeyPatch,
+def test_database_unavailable_returns_503_without_leaking_details(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    def unavailable(*args: object, **kwargs: object) -> None:
-        raise RedisConnectionError("Error connecting to redis:6379")
+    # A real connection failure: nothing listens on port 1.
+    unreachable = "postgresql+psycopg2://user:pass@127.0.0.1:1/urlshortener"
+    app = create_app("testing", {"SQLALCHEMY_DATABASE_URI": unreachable})
 
-    monkeypatch.setattr(redis_client, "get", unavailable)
-
-    response = client.get("/api/abc1234")
+    response = app.test_client().get("/api/abc1234")
 
     error = assert_error(response, 503, "service_unavailable")
-    assert "redis:6379" not in error["message"]
-    assert "redis:6379" in caplog.text
+    assert "127.0.0.1" not in error["message"]
+    assert "127.0.0.1" in caplog.text
     # Logged exactly once (by Flask-RESTX), with the traceback attached.
     assert len([record for record in caplog.records if record.exc_info]) == 1
 

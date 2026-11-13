@@ -3,7 +3,7 @@ from typing import Any
 from flask import Flask, current_app
 from flask_restx import Api
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from redis.exceptions import RedisError
+from sqlalchemy.exc import OperationalError
 from werkzeug.exceptions import HTTPException
 
 HandlerResult = tuple[dict[str, Any], int]
@@ -102,7 +102,8 @@ def handle_generation_error(error: ShortCodeGenerationError) -> HandlerResult:
     return error_body("service_unavailable", message), 503
 
 
-def handle_storage_error(error: RedisError) -> HandlerResult:
+def handle_storage_error(error: OperationalError) -> HandlerResult:
+    # OperationalError: the database could not be reached or the connection failed.
     message = "The storage service is temporarily unavailable. Please try again."
     return error_body("service_unavailable", message), 503
 
@@ -126,7 +127,7 @@ def register_error_handlers(api: Api) -> None:
     api.errorhandler(ValidationError)(handle_validation_error)
     api.errorhandler(ShortCodeNotFoundError)(handle_not_found)
     api.errorhandler(ShortCodeGenerationError)(handle_generation_error)
-    api.errorhandler(RedisError)(handle_storage_error)
+    api.errorhandler(OperationalError)(handle_storage_error)
     api.errorhandler(HTTPException)(handle_http_exception)
     api.errorhandler(Exception)(handle_unexpected_error)
 
