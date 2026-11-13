@@ -7,16 +7,13 @@ from flask import Flask
 from flask_injector import FlaskInjector
 from injector import Injector
 
+from app import models  # noqa: F401  (registers every table with SQLAlchemy)
 from app.api import api_bp
 from app.core.config import config_by_name
 from app.core.dependencies import RedisModule
 from app.core.errors import register_app_error_handlers
 from app.core.extensions import db, migrate
 from app.core.middleware import register_request_logging
-
-# Importing the models registers their tables with SQLAlchemy, so migrations
-# and queries know about them even before any route uses them.
-from app.users import models as users_models  # noqa: F401
 
 
 def create_app(

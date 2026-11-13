@@ -18,7 +18,14 @@ def test_all_migrations_can_be_reverted_and_reapplied() -> None:
     assert table_names() == {"alembic_version"}
 
     upgrade()
-    assert "users" in table_names()
+    assert table_names() == {
+        "alembic_version",
+        "users",
+        "urls",
+        "tags",
+        "url_tags",
+        "clicks",
+    }
 
 
 def test_models_and_migrations_are_in_sync() -> None:

@@ -20,4 +20,6 @@ class Base(DeclarativeBase):
 # Created here, initialised in create_app(): models import `db` without
 # importing the application factory, which avoids circular imports.
 db = SQLAlchemy(model_class=Base)
-migrate = Migrate()
+# Batch mode is a workaround for SQLite's limited ALTER TABLE; PostgreSQL
+# does not need it, so migrations use plain operations.
+migrate = Migrate(render_as_batch=False)
