@@ -19,6 +19,15 @@ class ShortCodeGenerationError(Exception):
     """Raised when no unused short code could be found after several attempts."""
 
 
+class ConflictError(Exception):
+    """The request is valid but clashes with existing data, e.g. a taken username."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+        self.message = message
+
+
 # These models define the error format once: error_body() builds every error
 # response through them, and Swagger documents them.
 class ErrorDetail(BaseModel):
@@ -78,6 +87,14 @@ def handle_not_found(error: ShortCodeNotFoundError) -> HandlerResult:
     return error_body("not_found", str(error)), 404
 
 
+def handle_conflict(error: ConflictError) -> HandlerResult:
+    details = [ErrorDetail(field=error.field, message=error.message)]
+    return (
+        error_body("conflict", "The request conflicts with existing data.", details),
+        409,
+    )
+
+
 def handle_http_exception(
     error: HTTPException,
 ) -> tuple[dict[str, Any], int, dict[str, str]]:
@@ -126,6 +143,7 @@ def register_error_handlers(api: Api) -> None:
     """
     api.errorhandler(ValidationError)(handle_validation_error)
     api.errorhandler(ShortCodeNotFoundError)(handle_not_found)
+    api.errorhandler(ConflictError)(handle_conflict)
     api.errorhandler(ShortCodeGenerationError)(handle_generation_error)
     api.errorhandler(OperationalError)(handle_storage_error)
     api.errorhandler(HTTPException)(handle_http_exception)
