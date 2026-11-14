@@ -280,3 +280,137 @@ def test_without_eager_loading_queries_grow_with_the_rows(
 
     # 1 for the URLs + 1 for their (shared) owner + 10 for the tags of each URL.
     assert len(statements) == 12
+
+
+# ---- update (PUT) -----------------------------------------------------------
+
+
+def put(
+    client: FlaskClient, code: str, auth: tuple[str, str] = ALICE, **body: Any
+) -> Any:
+    return client.put(f"{URLS}{code}/", json=body, auth=auth)
+
+
+def test_put_replaces_every_editable_field(client: FlaskClient) -> None:
+    code = create(client, tags=["Social"]).json["short_code"]
+    expires_at = future(days=60)
+
+    response = put(
+        client,
+        code,
+        url="https://www.example.com/summer-sale",
+        custom_alias="summer-sale",
+        expires_at=expires_at,
+        tags=["Marketing", "Launch"],
+        is_active=False,
+    )
+
+    assert response.status_code == 200
+    body = response.json
+    assert body["short_code"] == code  # never changes
+    assert body["original_url"] == "https://www.example.com/summer-sale"
+    assert body["custom_alias"] == "summer-sale"
+    assert datetime.fromisoformat(body["expires_at"]) == datetime.fromisoformat(
+        expires_at
+    )
+    assert body["tags"] == ["Launch", "Marketing"]
+    assert body["is_active"] is False
+    assert_matches_schema(client, "UrlResponse", body)
+
+
+def test_put_resets_optional_fields_that_are_left_out(client: FlaskClient) -> None:
+    code = create(
+        client, custom_alias="spring-sale", expires_at=future(), tags=["Social"]
+    ).json["short_code"]
+    client.delete(f"{URLS}{code}/", auth=ALICE)
+
+    body = put(client, code, url=LONG_URL).json
+
+    assert body["custom_alias"] is None
+    assert body["expires_at"] is None
+    assert body["tags"] == []
+    assert body["is_active"] is True  # also how a deactivated URL is reactivated
+
+
+def test_put_can_keep_its_own_alias(client: FlaskClient) -> None:
+    code = create(client, custom_alias="spring-sale").json["short_code"]
+
+    response = put(client, code, url=LONG_URL, custom_alias="spring-sale")
+
+    assert response.status_code == 200
+
+
+def test_put_cannot_take_another_urls_alias_or_code(client: FlaskClient) -> None:
+    other = create(client, auth=("bob", PASSWORD), custom_alias="bobs-link").json
+    code = create(client).json["short_code"]
+
+    for alias in ("bobs-link", other["short_code"]):
+        response = put(client, code, url=LONG_URL, custom_alias=alias)
+        assert response.status_code == 409
+
+
+def test_put_validates_like_create(client: FlaskClient) -> None:
+    code = create(client).json["short_code"]
+
+    response = put(client, code, url=LONG_URL, expires_at="2020-01-01T00:00:00Z")
+
+    assert response.status_code == 422
+
+
+def test_put_keeps_click_history(app: Flask, client: FlaskClient) -> None:
+    alice_id = user_id(app, "alice")
+    with app.app_context():
+        create_url("counted", owner_id=alice_id, click_count=7)
+
+    body = put(client, "counted", url="https://www.example.com/new-target").json
+
+    assert body["click_count"] == 7
+
+
+# ---- deactivate (DELETE) ----------------------------------------------------
+
+
+def test_delete_deactivates_but_keeps_the_url(client: FlaskClient) -> None:
+    code = create(client).json["short_code"]
+
+    response = client.delete(f"{URLS}{code}/", auth=ALICE)
+
+    assert response.status_code == 204
+    assert response.get_data() == b""
+    details = get(client, f"{URLS}{code}/").json
+    assert details["is_active"] is False
+    listed = get(client, URLS).json["items"]
+    assert [item["short_code"] for item in listed] == [code]
+    assert get(client, f"{URLS}?status=active").json["items"] == []
+
+
+def test_delete_twice_is_harmless(client: FlaskClient) -> None:
+    code = create(client).json["short_code"]
+    client.delete(f"{URLS}{code}/", auth=ALICE)
+
+    assert client.delete(f"{URLS}{code}/", auth=ALICE).status_code == 204
+
+
+# ---- ownership and authentication for PUT / DELETE --------------------------
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_cannot_change_another_users_url(client: FlaskClient, method: str) -> None:
+    code = create(client, auth=("bob", PASSWORD)).json["short_code"]
+
+    response = getattr(client, method)(
+        f"{URLS}{code}/", json={"url": LONG_URL}, auth=ALICE
+    )
+
+    assert response.status_code == 404
+    bobs = client.get(f"{URLS}{code}/", auth=("bob", PASSWORD)).json
+    assert bobs is not None and bobs["is_active"] is True
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+def test_put_and_delete_require_authentication(
+    client: FlaskClient, method: str
+) -> None:
+    response = getattr(client, method)(f"{URLS}abc1234/", json={"url": LONG_URL})
+
+    assert response.status_code == 401

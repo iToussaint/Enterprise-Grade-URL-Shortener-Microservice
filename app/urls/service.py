@@ -2,7 +2,7 @@ import secrets
 import string
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from injector import inject
 from sqlalchemy import func, or_, select
@@ -70,13 +70,7 @@ class UrlShortenerService:
                 expires_at=expires_at,
             )
         except IntegrityError as error:
-            db.session.rollback()
-            if violated_constraint(error) != "uq_urls_custom_alias":
-                raise
-            # Another request took the alias between the check and the insert.
-            raise ConflictError(
-                "custom_alias", "This alias is already taken."
-            ) from None
+            self._raise_alias_conflict(error)
 
         url = db.session.get_one(URL, url_id)
         url.tags = self._tags_named(tag_names)
@@ -124,6 +118,41 @@ class UrlShortenerService:
             raise ShortCodeNotFoundError(short_code)
         return url
 
+    def update_for(
+        self,
+        owner: User,
+        short_code: str,
+        original_url: str,
+        custom_alias: str | None,
+        expires_at: datetime | None,
+        tag_names: Sequence[str],
+        is_active: bool,
+    ) -> URL:
+        """Replace the editable fields of the owner's URL (PUT semantics).
+
+        The short code never changes: it is the link people already shared.
+        """
+        url = self.get_for(owner, short_code)
+        if custom_alias is not None and custom_alias != url.custom_alias:
+            self._ensure_alias_is_free(custom_alias, ignore_url_id=url.id)
+
+        url.original_url = original_url
+        url.custom_alias = custom_alias
+        url.expires_at = expires_at
+        url.is_active = is_active
+        url.tags = self._tags_named(tag_names)
+        try:
+            db.session.commit()
+        except IntegrityError as error:
+            self._raise_alias_conflict(error)
+        return url
+
+    def deactivate_for(self, owner: User, short_code: str) -> None:
+        """Soft delete: the row and its clicks stay, the link stops working."""
+        url = self.get_for(owner, short_code)
+        url.is_active = False
+        db.session.commit()
+
     # ---- helpers ------------------------------------------------------------
 
     def _insert_with_new_code(self, **values: Any) -> tuple[int, str]:
@@ -145,15 +174,27 @@ class UrlShortenerService:
             f"Could not generate a unique short code after {MAX_ATTEMPTS} attempts."
         )
 
-    def _ensure_alias_is_free(self, alias: str) -> None:
+    def _ensure_alias_is_free(
+        self, alias: str, ignore_url_id: int | None = None
+    ) -> None:
         # An alias must not equal any alias or short code, so a link is never ambiguous.
-        taken = db.session.scalar(
-            select(URL.id).where(
-                or_(URL.custom_alias == alias, URL.short_code == alias)
-            )
+        query = select(URL.id).where(
+            or_(URL.custom_alias == alias, URL.short_code == alias)
         )
-        if taken is not None:
+        if ignore_url_id is not None:
+            query = query.where(URL.id != ignore_url_id)
+        if db.session.scalar(query) is not None:
             raise ConflictError("custom_alias", "This alias is already taken.")
+
+    def _raise_alias_conflict(self, error: IntegrityError) -> NoReturn:
+        """Turn a lost race for an alias into 409; re-raise anything else."""
+        db.session.rollback()
+        if violated_constraint(error) == "uq_urls_custom_alias":
+            # Another request took the alias between the check and the write.
+            raise ConflictError(
+                "custom_alias", "This alias is already taken."
+            ) from None
+        raise error
 
     def _tags_named(self, names: Sequence[str]) -> list[Tag]:
         """Existing tags matched case-insensitively; unknown names become new tags."""

@@ -85,6 +85,26 @@ class CreateUrlRequest(BaseModel):
         return value
 
 
+class UpdateUrlRequest(CreateUrlRequest):
+    """PUT replaces the URL's editable fields; anything optional left out resets."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "url": "https://www.example.com/summer-sale",
+                "custom_alias": "summer-sale",
+                "expires_at": None,
+                "tags": ["Marketing"],
+                "is_active": True,
+            }
+        }
+    )
+
+    is_active: bool = Field(
+        default=True, description="false deactivates the link; true reactivates it."
+    )
+
+
 class UrlResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={

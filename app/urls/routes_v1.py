@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from flask import request
+from flask import Response, request
 from flask_restx import Namespace, Resource
 from injector import inject
 
@@ -14,6 +14,7 @@ from app.urls.routes import ShortUrlRedirect
 from app.urls.schemas import (
     CreateUrlRequest,
     ListUrlsParams,
+    UpdateUrlRequest,
     UrlListResponse,
     UrlResponse,
 )
@@ -26,6 +27,7 @@ ns = Namespace(
 )
 
 create_request_model = register_schema(ns, CreateUrlRequest)
+update_request_model = register_schema(ns, UpdateUrlRequest)
 url_response_model = register_schema(ns, UrlResponse)
 url_list_model = register_schema(ns, UrlListResponse)
 error_model = register_schema(ns, ErrorResponse)
@@ -140,3 +142,39 @@ class OwnUrlItem(OwnUrlResource):
     def get(self, short_code: str) -> dict[str, Any]:
         """Retrieve one of your short URLs."""
         return self.to_response(self._service.get_for(current_user(), short_code))
+
+    @ns.expect(update_request_model)
+    @ns.response(200, "The updated URL.", url_response_model)
+    @ns.response(400, "The request body is not valid JSON.", error_model)
+    @ns.response(409, "The custom alias is already taken.", error_model)
+    @ns.response(415, "The Content-Type is not application/json.", error_model)
+    @ns.response(422, "A field is missing or invalid.", error_model)
+    def put(self, short_code: str) -> dict[str, Any]:
+        """Replace one of your short URLs.
+
+        Send every field you want to keep: optional fields left out are reset
+        (no alias, no expiry, no tags, active). The short code never changes.
+        Set `is_active` to true to reactivate a deactivated URL.
+        """
+        payload = UpdateUrlRequest.model_validate(ns.payload)
+        url = self._service.update_for(
+            current_user(),
+            short_code,
+            str(payload.url),
+            custom_alias=payload.custom_alias,
+            expires_at=payload.expires_at,
+            tag_names=payload.tags,
+            is_active=payload.is_active,
+        )
+        return self.to_response(url)
+
+    @ns.response(204, "Deactivated. The URL and its clicks are kept.")
+    def delete(self, short_code: str) -> Response:
+        """Deactivate one of your short URLs.
+
+        The link stops redirecting, but the URL and its click history are kept;
+        it still appears in your list and can be reactivated with PUT.
+        Deleting an already deactivated URL also returns 204.
+        """
+        self._service.deactivate_for(current_user(), short_code)
+        return Response(status=204)
