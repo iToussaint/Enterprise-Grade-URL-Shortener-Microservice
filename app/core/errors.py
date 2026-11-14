@@ -3,7 +3,7 @@ from typing import Any
 from flask import Flask, current_app
 from flask_restx import Api
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from werkzeug.exceptions import HTTPException
 
 HandlerResult = tuple[dict[str, Any], int]
@@ -26,6 +26,12 @@ class ConflictError(Exception):
         super().__init__(message)
         self.field = field
         self.message = message
+
+
+def violated_constraint(error: IntegrityError) -> str:
+    """The name of the database constraint that rejected a write, e.g. "uq_users_email"."""
+    diagnostics = getattr(error.orig, "diag", None)
+    return getattr(diagnostics, "constraint_name", None) or ""
 
 
 # These models define the error format once: error_body() builds every error

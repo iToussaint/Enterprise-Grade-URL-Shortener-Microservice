@@ -1,10 +1,12 @@
 from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
+from typing import Any
 
 import pytest
 from flask import Flask
 from flask.testing import FlaskClient
 from flask_migrate import upgrade
-from sqlalchemy import text
+from sqlalchemy import event, text
 from testcontainers.community.postgres import PostgresContainer
 
 from app import create_app
@@ -71,3 +73,33 @@ def app_context(app: Flask) -> Iterator[None]:
     """Run the test inside an application context, so `db.session` is usable."""
     with app.app_context():
         yield
+
+
+StatementRecorder = Callable[[], AbstractContextManager[list[str]]]
+
+
+@pytest.fixture
+def sql_statements(app: Flask) -> StatementRecorder:
+    """Record every SQL statement the app sends while the `with` block runs.
+
+    with sql_statements() as statements:
+        client.get(...)
+    assert len(statements) == 3
+    """
+    with app.app_context():
+        engine = db.engine
+
+    @contextmanager
+    def record() -> Iterator[list[str]]:
+        statements: list[str] = []
+
+        def on_execute(*args: Any) -> None:
+            statements.append(args[2])  # (conn, cursor, statement, ...)
+
+        event.listen(engine, "before_cursor_execute", on_execute)
+        try:
+            yield statements
+        finally:
+            event.remove(engine, "before_cursor_execute", on_execute)
+
+    return record

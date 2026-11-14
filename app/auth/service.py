@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from app.core.errors import ConflictError
+from app.core.errors import ConflictError, violated_constraint
 from app.core.extensions import db
 from app.users.models import User
 
@@ -25,10 +25,7 @@ class AuthService:
             # The unique constraints decide, so two simultaneous registrations
             # with the same name cannot both succeed.
             db.session.rollback()
-            constraint = getattr(
-                getattr(error.orig, "diag", None), "constraint_name", ""
-            )
-            field = UNIQUE_FIELDS.get(constraint)
+            field = UNIQUE_FIELDS.get(violated_constraint(error))
             if field is None:
                 raise
             raise ConflictError(field, f"This {field} is already registered.") from None

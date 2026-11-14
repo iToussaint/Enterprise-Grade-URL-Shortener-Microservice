@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.core.errors import ShortCodeGenerationError, ShortCodeNotFoundError
 from app.core.extensions import db
 from app.urls import service as service_module
+from app.urls.managers import URLManager
 from app.urls.models import URL
 from app.urls.service import (
     CODE_ALPHABET,
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.usefixtures("app_context")
 
 @pytest.fixture
 def service() -> UrlShortenerService:
-    return UrlShortenerService()
+    return UrlShortenerService(URLManager())
 
 
 def stored_url(short_code: str) -> URL:

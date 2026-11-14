@@ -4,6 +4,7 @@ from flask_restx import Api
 from app.auth.routes import ns as auth_ns
 from app.core.errors import register_error_handlers
 from app.urls.routes import ns as urls_ns
+from app.urls.routes_v1 import ns as urls_v1_ns
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -33,4 +34,5 @@ api = Api(
 )
 api.add_namespace(urls_ns)
 api.add_namespace(auth_ns)
+api.add_namespace(urls_v1_ns)
 register_error_handlers(api)
