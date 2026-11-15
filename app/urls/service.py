@@ -121,15 +121,18 @@ class UrlShortenerService:
         )
         return list(db.session.scalars(query)), total or 0
 
-    def get_for(self, owner: User, short_code: str) -> URL:
-        """The owner's URL with this code. Other users' URLs are "not found"."""
-        url: URL | None = db.session.scalar(
-            self._with_owner_and_tags(
-                select(URL).where(
-                    URL.short_code == short_code, URL.owner_id == owner.id
-                )
-            )
+    def get_for(self, owner: User, short_code: str, with_details: bool = True) -> URL:
+        """The owner's URL with this code. Other users' URLs are "not found".
+
+        with_details=False skips loading the owner and tags, for callers that
+        only need the URL row (e.g. analytics).
+        """
+        query = select(URL).where(
+            URL.short_code == short_code, URL.owner_id == owner.id
         )
+        if with_details:
+            query = self._with_owner_and_tags(query)
+        url: URL | None = db.session.scalar(query)
         if url is None:
             raise ShortCodeNotFoundError(short_code)
         return url

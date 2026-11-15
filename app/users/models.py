@@ -14,6 +14,10 @@ class Tier(StrEnum):
     ADMIN = "Admin"
 
 
+# Tiers with Premium features, such as analytics.
+PREMIUM_TIERS = frozenset({Tier.PREMIUM, Tier.ADMIN})
+
+
 class User(db.Model):  # type: ignore[name-defined]
     """Application user: the fields of Django's AbstractUser plus `is_premium` and `tier`.
 

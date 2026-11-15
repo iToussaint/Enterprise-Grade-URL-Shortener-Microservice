@@ -23,6 +23,10 @@ class LinkGoneError(Exception):
     """The short URL exists but no longer redirects: deactivated or expired."""
 
 
+class ForbiddenError(Exception):
+    """The caller is known but not allowed to do this, e.g. a Free user."""
+
+
 class ConflictError(Exception):
     """The request is valid but clashes with existing data, e.g. a taken username."""
 
@@ -101,6 +105,10 @@ def handle_gone(error: LinkGoneError) -> HandlerResult:
     return error_body("gone", str(error)), 410
 
 
+def handle_forbidden(error: ForbiddenError) -> HandlerResult:
+    return error_body("forbidden", str(error)), 403
+
+
 def handle_conflict(error: ConflictError) -> HandlerResult:
     details = [ErrorDetail(field=error.field, message=error.message)]
     return (
@@ -163,6 +171,7 @@ def register_error_handlers(api: Api) -> None:
     api.errorhandler(ValidationError)(handle_validation_error)
     api.errorhandler(ShortCodeNotFoundError)(handle_not_found)
     api.errorhandler(LinkGoneError)(handle_gone)
+    api.errorhandler(ForbiddenError)(handle_forbidden)
     api.errorhandler(ConflictError)(handle_conflict)
     api.errorhandler(ShortCodeGenerationError)(handle_generation_error)
     api.errorhandler(OperationalError)(handle_storage_error)

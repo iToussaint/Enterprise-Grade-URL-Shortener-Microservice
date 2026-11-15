@@ -16,6 +16,7 @@ from app.core.errors import register_app_error_handlers
 from app.core.extensions import db, migrate
 from app.core.middleware import register_request_logging
 from app.urls.redirects import redirects_bp
+from app.users.commands import users_cli
 
 
 def create_app(
@@ -54,6 +55,7 @@ def create_app(
 
     app.register_blueprint(api_bp)
     app.register_blueprint(redirects_bp)
+    app.cli.add_command(users_cli)
     register_app_error_handlers(app)
     register_request_logging(app)
 
