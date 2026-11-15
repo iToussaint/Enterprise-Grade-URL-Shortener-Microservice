@@ -1,279 +1,135 @@
-# Enterprise-Grade URL Shortener Microservice
+# URL Shortener Microservice
 
-A Flask microservice that turns long URLs into short codes and redirects short
-codes back to the original URL. Short URLs are stored in Redis.
+A Flask service that turns long URLs into short links, redirects visitors and
+records every click. Users own their links (custom aliases, expiry dates, tags),
+and Premium users get click analytics per day, country and referrer.
+Built in modules: **5** (core service, Docker) and **6** (data model, users,
+analytics) are complete.
 
-This repository is **Module 5** (Lab 1) of a larger project. It contains the
-core service: the REST API, validation, error handling, logging, Docker setup
-and API documentation.
+**Stack:** Python 3.11 · Flask · Flask-RESTX · SQLAlchemy 2 / Alembic ·
+PostgreSQL 18 · Pydantic · Flask-Injector · Docker · Gunicorn
 
-## Features
+## Quick start
 
-- `POST /api/urls` creates a 7-character short code for a valid `http`/`https` URL.
-- `GET /api/<short_code>` redirects (302) to the original URL.
-- Request validation with Pydantic.
-- The same JSON error format for every error, including unknown routes.
-- A log line for every request: method, path, status and duration.
-- Interactive Swagger UI at `/api/docs`.
-- A development profile (Flask debug server with hot reload) and a production
-  profile (Gunicorn with several workers).
+Requires Docker with Compose v2.
 
-## Technologies
+```bash
+cp .env.example .env                               # then set POSTGRES_PASSWORD and REDIS_PASSWORD
+poetry run python scripts/download_geoip.py        # optional: city/country for clicks (~130 MB)
+docker compose up --build                          # applies migrations, then starts the app
+```
 
-| Area | Choice |
-|---|---|
-| Language | Python 3.11 |
-| Web framework | Flask 3 (application factory and blueprints) |
-| REST API and Swagger | Flask-RESTX |
-| Validation | Pydantic v2 |
-| Dependency injection | Flask-Injector |
-| Storage | Redis 8 (redis-py client) |
-| Configuration | python-decouple (environment variables and `.env`) |
-| WSGI server | Gunicorn |
-| Containers | Docker (multi-stage build) and Docker Compose |
-| Dependencies | Poetry (`requirements.txt` is generated from `poetry.lock`) |
-| Quality | pytest, fakeredis, mypy, Ruff, Black, pre-commit |
+Open **<http://localhost:8000/api/docs>**, register a user, then use **Authorize**.
+To unlock analytics for a user:
 
-## Prerequisites
-
-- **Docker** with Docker Compose v2. This is all you need to run the service.
-- For local development and tests: **Python 3.11** and **Poetry 2**, with the
-  export plugin (`poetry self add poetry-plugin-export`) if you change
-  dependencies.
+```bash
+docker compose exec app flask --app app users set-tier <username> premium
+```
 
 ## Configuration
 
-Settings are read from environment variables or from a `.env` file in the
-project root. Copy the template and fill it in:
+Set in `.env` (see `.env.example`). Compose sets `APP_ENV`, `DATABASE_URL` and `REDIS_HOST` for the app container.
 
-```bash
-cp .env.example .env
-```
-
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `REDIS_PASSWORD` | **Yes** (for Docker Compose) | none | Password Redis requires. Compose refuses to start without it. |
-| `APP_ENV` | No | `production` | Configuration profile: `development`, `production` or `testing`. Docker Compose sets `development` automatically. |
-| `REDIS_HOST` | No | `localhost` | Redis host. Docker Compose sets `redis` automatically. |
-| `REDIS_PORT` | No | `6379` | Redis port. |
-| `WEB_CONCURRENCY` | No | `4` | Number of Gunicorn workers in the production image. |
-
-A minimal `.env` for Docker Compose:
-
-```dotenv
-REDIS_PASSWORD=choose-a-strong-password
-```
-
-`.env` is in `.gitignore`. Never commit it.
-
-## Running with Docker Compose (recommended)
-
-```bash
-docker compose up --build
-```
-
-This starts:
-
-- **`app`**: the Flask development server on <http://localhost:8000>, in debug
-  mode. `./app` is mounted into the container, so code changes reload the
-  server automatically.
-- **`redis`**: Redis with a password and append-only persistence. Its data is
-  kept in the `redis-data` volume, so short URLs survive restarts and
-  rebuilds. Port 6379 is published on `127.0.0.1` only (useful for
-  RedisInsight).
-
-Then open the Swagger UI at <http://localhost:8000/api/docs>.
-
-Stop the stack with `docker compose down`. Add `-v` only if you also want to
-delete the stored short URLs.
-
-## Running the production profile
-
-The image's default command runs Gunicorn with `WEB_CONCURRENCY` workers
-(4 by default) as a non-root user. With the Compose stack running (so Redis
-is available):
-
-```bash
-docker build -t url-shortener:prod .
-docker run --rm -p 8001:8000 \
-  --network enterprise-grade-url-shortener-microservice_default \
-  --env-file .env -e APP_ENV=production -e REDIS_HOST=redis \
-  url-shortener:prod
-```
-
-The API is then available on <http://localhost:8001/api/docs>. Change the
-number of workers with `-e WEB_CONCURRENCY=2`.
-
-## Local development without Docker
-
-```bash
-poetry install                 # runtime and dev dependencies
-poetry run pre-commit install  # run the quality checks on every commit
-docker compose up -d redis     # Redis only
-```
-
-Add `APP_ENV=development` to `.env`, then start the server:
-
-```bash
-poetry run flask --app app run --debug --port 8000
-```
-
-## Tests and quality checks
-
-```bash
-poetry run pytest                        # 53 tests; Redis is replaced by fakeredis
-poetry run pre-commit run --all-files    # Black, Ruff, mypy and file checks
-```
-
-The tests do not need Docker or a running Redis. They cover the service, the
-endpoints, error handling, the logging middleware, dependency injection, the
-application factory, and contract tests that validate responses against the
-published Swagger specification.
-
-When dependencies change, `requirements.txt` is regenerated by the
-`poetry-export` pre-commit hook. To do it by hand:
-
-```bash
-poetry export -f requirements.txt --output requirements.txt --without-hashes
-```
+| Variable | Default | Purpose |
+|---|---|---|
+| `POSTGRES_PASSWORD` | **required** | Database password (Compose creates the database) |
+| `POSTGRES_USER`, `POSTGRES_DB` | `urlshortener` | Database user and name |
+| `POSTGRES_HOST_PORT` | `5432` | Port on your machine; change it if a local PostgreSQL uses 5432 |
+| `DATABASE_URL` | — | Required outside Docker: `postgresql+psycopg2://user:pass@localhost:5432/urlshortener` |
+| `REDIS_PASSWORD` | **required** | Redis runs in Compose, reserved for caching (Module 8) |
+| `APP_ENV` | `production` | `development`, `production` or `testing` |
+| `GEOIP_DATABASE_PATH` | `geoip/dbip-city-lite.mmdb` | GeoIP database; without it, clicks have no location |
+| `TRUSTED_PROXY_COUNT` | `0` | Trusted reverse proxies; only then is `X-Forwarded-For` used for the client IP |
+| `WEB_CONCURRENCY` | `4` | Gunicorn workers in the production image |
 
 ## API
 
-Interactive documentation: <http://localhost:8000/api/docs>
-(specification: `/api/swagger.json`).
-
-| Method | Path | Success | Errors |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/api/urls` | `201 Created` with a `Location` header | 400, 415, 422, 503 |
-| `GET` | `/api/<short_code>` | `302 Found` to the original URL | 404, 503 |
+| `GET` | `/<code>/` | — | Public short link: 302 to the original URL (code or alias); 404 unknown, 410 expired/deactivated |
+| `POST` | `/api/v1/auth/register/` | — | Create an account (Free tier) |
+| `POST` | `/api/v1/urls/` | Basic | Create a short URL (optional alias, expiry, tags) |
+| `GET` | `/api/v1/urls/` | Basic | List your URLs (`status`, `sort`, `page`, `page_size`) |
+| `GET` | `/api/v1/urls/<code>/` | Basic | Your URL's details |
+| `PUT` | `/api/v1/urls/<code>/` | Basic | Replace your URL's editable fields |
+| `DELETE` | `/api/v1/urls/<code>/` | Basic | Deactivate your URL (kept, with its clicks) |
+| `GET` | `/api/v1/analytics/<code>/` | Basic, Premium | Clicks over time, per country and referrer (`days`, `interval`) |
+| `POST` | `/api/urls` | — | Module 5: anonymous short URL |
+| `GET` | `/api/<code>` | — | Module 5: same redirect as `/<code>/` |
 
-### Create a short URL
-
-```bash
-curl -i -X POST http://localhost:8000/api/urls \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://flask.palletsprojects.com/en/stable/"}'
-```
-
-```http
-HTTP/1.1 201 CREATED
-Content-Type: application/json
-Location: http://localhost:8000/api/2RpWJEW
-
-{
-    "short_code": "2RpWJEW",
-    "short_url": "http://localhost:8000/api/2RpWJEW",
-    "original_url": "https://flask.palletsprojects.com/en/stable/"
-}
-```
-
-### Follow a short URL
-
-```bash
-curl -i http://localhost:8000/api/2RpWJEW
-```
-
-```http
-HTTP/1.1 302 FOUND
-Location: https://flask.palletsprojects.com/en/stable/
-```
-
-### Errors
-
-Every error has the same shape. `details` appears only for validation errors.
-
-```json
-{
-    "error": {
-        "code": "validation_error",
-        "message": "Request validation failed.",
-        "details": [
-            {
-                "field": "url",
-                "message": "Input should be a valid URL, relative URL without a base"
-            }
-        ]
-    }
-}
-```
-
-| Status | `code` | When |
-|---|---|---|
-| 400 | `bad_request` | The body is not valid JSON |
-| 404 | `not_found` | Unknown short code or unknown path |
-| 405 | `method_not_allowed` | Wrong HTTP method (the `Allow` header lists the valid ones) |
-| 415 | `unsupported_media_type` | The body is not sent as `application/json` |
-| 422 | `validation_error` | The JSON is valid but the URL is missing or invalid |
-| 500 | `internal_server_error` | Unexpected error (details are logged, never returned) |
-| 503 | `service_unavailable` | Redis is unreachable, or no free short code was found |
+- **Auth:** HTTP Basic (username and password on each request; use HTTPS in production). Other users' URLs return 404.
+- **Errors:** always `{"error": {"code": "...", "message": "...", "details": [...]}}`.
+- **Full schemas, validation rules and examples:** Swagger UI at `/api/docs` (spec at `/api/swagger.json`).
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Client -->|HTTP| MW["Request logging<br/>middleware"]
-    MW --> Routes["Flask-RESTX resources<br/>(shortener blueprint, /api)"]
-    Routes -->|validate| Schemas["Pydantic schemas"]
-    Routes -->|injected| Service["UrlShortenerService"]
-    Service -->|injected client| Redis[(Redis)]
-    Routes -. exceptions .-> Errors["Global error handlers<br/>(JSON errors)"]
+    Visitor -->|GET /code/| Redirect[Public redirect]
+    Client -->|/api/...| API[Flask-RESTX API<br/>auth · urls · analytics]
+    Redirect --> Services
+    API --> Services[Services<br/>UrlShortener · Click · Analytics]
+    Services --> DB[(PostgreSQL)]
+    Services --> GeoIP[(DB-IP file)]
+    Redis[(Redis<br/>reserved: Module 8)]
 ```
 
-**Request flow.**
+```mermaid
+erDiagram
+    users ||--o{ urls : owns
+    urls ||--o{ clicks : records
+    urls }o--o{ tags : "url_tags"
+```
 
-1. The middleware records the start time of every request.
-2. The Flask-RESTX resource validates the JSON body with a Pydantic model.
-3. Flask-Injector gives the resource a `UrlShortenerService`, which receives
-   one shared Redis client.
-4. The service generates a random 7-character base62 code with `secrets` and
-   stores it with Redis `SET NX` under the key `url:<code>`. `NX` only writes
-   if the key does not exist, which makes the collision check atomic. On a
-   collision it tries again, up to 5 times.
-5. Any exception is turned into the JSON error format by the global handlers.
-6. The middleware logs the method, path, status and duration.
+Routes only handle HTTP; services hold the rules and are injected with Flask-Injector;
+`URLManager` provides the `active_urls()`, `expired_urls()` and `popular_urls()` queries.
+Lists load owners and tags with `joinedload`/`selectinload` (no N+1 queries);
+analytics are computed with `GROUP BY` in PostgreSQL.
 
-**Key design decisions.**
-
-- **Application factory** (`create_app`): the configuration profile is chosen
-  at start-up from `APP_ENV`, and tests can create isolated apps.
-- **Blueprint with a URL prefix**: all endpoints live under `/api`, so future
-  modules can add their own blueprints without conflicts.
-- **Dependency injection**: resources depend on the service, not on Redis
-  directly, and tests swap the Redis client for fakeredis in one place.
-- **Redis as the only store**: lookups by key are fast, and append-only
-  persistence with a Docker volume keeps the data.
-- **One error format**: clients handle every error the same way, and internal
-  details are never leaked.
-
-### Project structure
+## Project structure
 
 ```text
 app/
-├── __init__.py          # create_app(): config, blueprint, errors, logging, DI
-├── config.py            # Development, Production and Testing configuration
-├── dependencies.py      # Flask-Injector module providing the Redis client
-├── errors.py            # Exceptions, error models and global error handlers
-├── middleware.py        # Request logging
-└── shortener/
-    ├── __init__.py      # Blueprint and Flask-RESTX Api (Swagger UI)
-    ├── routes.py        # POST /api/urls and GET /api/<short_code>
-    ├── schemas.py       # Pydantic request and response models
-    └── service.py       # UrlShortenerService and short-code generation
-tests/                   # pytest suite (fakeredis, contract tests)
-Dockerfile               # Multi-stage build; Gunicorn production command
-docker-compose.yml       # Development stack: Flask debug server and Redis
+├── __init__.py        # create_app(): config, extensions, blueprints, DI
+├── api.py             # /api blueprint, Swagger, namespaces
+├── models.py          # imports every model (for migrations)
+├── core/              # config, database extensions, errors, logging, Swagger helpers
+├── auth/              # registration, HTTP Basic authentication
+├── users/             # User model, `flask users set-tier`
+├── urls/              # URL/Tag models, URLManager, service, routes, public redirect
+└── analytics/         # Click model, click recording, GeoIP, analytics
+migrations/            # Alembic: schema migrations + default-tags data migration
+scripts/               # download_geoip.py
+tests/                 # mirrors app/; runs against a real PostgreSQL
 ```
 
-## Known limitations
+## Development
 
-- Flask-RESTX generates **Swagger 2.0** (OpenAPI 2), not OpenAPI 3.0. The UI
-  and all request/response schemas with examples are fully documented, but
-  the specification version is 2.0.
-- Short URLs do not expire, and there is no authentication, rate limiting,
-  analytics or custom alias. These are outside Module 5.
+```bash
+poetry install && poetry run pre-commit install
+poetry run pytest                                   # needs Docker: Testcontainers starts PostgreSQL
+poetry run pre-commit run --all-files               # Black, Ruff, mypy, requirements.txt export
 
-## Development workflow
+docker compose exec app flask --app app db migrate -m "describe the change"   # new migration
+docker compose exec app flask --app app db upgrade                            # apply migrations
+```
 
-Trunk-based: short-lived branches (`feat/`, `fix/`, `docs/`, `chore/`,
-`build/`), each merged into `main` through a pull request. Commit messages
-follow the Conventional Commits style.
+Run without Docker: start only the database (`docker compose up -d db`), set
+`DATABASE_URL` and `APP_ENV=development` in `.env`, then
+`poetry run flask --app app db upgrade` and `poetry run flask --app app run --debug`.
+
+**Production:** the image runs Gunicorn (`WEB_CONCURRENCY` workers) as a non-root user.
+Run migrations as a separate step before starting new containers
+(`.env` must hold the production `DATABASE_URL`):
+
+```bash
+docker build -t url-shortener .
+docker run --rm --env-file .env url-shortener flask --app app db upgrade
+docker run -d -p 8000:8000 --env-file .env -v ./geoip:/app/geoip:ro url-shortener
+```
+
+## Notes
+
+- Flask-RESTX publishes **Swagger 2.0** (OpenAPI 2), not OpenAPI 3.0.
+- HTTP Basic authentication is temporary; JWT login and refresh arrive in Module 7.
+- IP Geolocation by [DB-IP](https://db-ip.com) (CC BY 4.0).
