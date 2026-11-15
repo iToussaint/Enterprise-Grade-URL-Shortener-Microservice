@@ -74,17 +74,62 @@ flowchart LR
     Redis[(Redis<br/>reserved: Module 8)]
 ```
 
-```mermaid
-erDiagram
-    users ||--o{ urls : owns
-    urls ||--o{ clicks : records
-    urls }o--o{ tags : "url_tags"
-```
-
 Routes only handle HTTP; services hold the rules and are injected with Flask-Injector;
 `URLManager` provides the `active_urls()`, `expired_urls()` and `popular_urls()` queries.
 Lists load owners and tags with `joinedload`/`selectinload` (no N+1 queries);
 analytics are computed with `GROUP BY` in PostgreSQL.
+
+### Data model
+
+```mermaid
+erDiagram
+    users ||--o{ urls : owns
+    urls ||--o{ clicks : records
+    urls }o--o{ tags : "tagged via url_tags"
+
+    users {
+        int id PK
+        string username UK
+        string email UK "required"
+        string password "scrypt hash"
+        string tier "Free, Premium or Admin"
+        bool is_premium "default false"
+        bool is_active "default true"
+        datetime date_joined
+    }
+    urls {
+        int id PK
+        string original_url
+        string short_code UK "indexed, max 10"
+        string custom_alias UK "nullable"
+        int owner_id FK "nullable for Module 5 URLs"
+        bool is_active "default true"
+        datetime expires_at "nullable"
+        int click_count "default 0, never negative"
+        datetime created_at "indexed"
+        string title "nullable, filled in Module 9"
+        string description "nullable, filled in Module 9"
+        string favicon "nullable, filled in Module 9"
+    }
+    clicks {
+        bigint id PK
+        int url_id FK "indexed with clicked_at"
+        datetime clicked_at
+        inet ip_address
+        string city "nullable"
+        string country "ISO code, nullable"
+        text user_agent
+        string referrer "nullable"
+    }
+    tags {
+        int id PK
+        string name UK
+    }
+```
+
+- `users` also has Django `AbstractUser`'s `first_name`, `last_name`, `is_staff`, `is_superuser` and `last_login`.
+- Deleting a user deletes their URLs; deleting a URL deletes its clicks and tag links (`ON DELETE CASCADE`). `DELETE` in the API only deactivates.
+- Default tags (Marketing, Social, Newsletter, Product, Event) are seeded by a data migration.
 
 ## Project structure
 
