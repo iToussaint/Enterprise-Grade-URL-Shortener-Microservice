@@ -56,7 +56,7 @@ def test_shorten_same_url_twice_gives_different_codes(
 def test_resolve_returns_original_url(service: UrlShortenerService) -> None:
     short_code = service.shorten(LONG_URL)
 
-    assert service.resolve(short_code) == LONG_URL
+    assert service.resolve(short_code).original_url == LONG_URL
 
 
 def test_resolve_unknown_code_raises_not_found(service: UrlShortenerService) -> None:

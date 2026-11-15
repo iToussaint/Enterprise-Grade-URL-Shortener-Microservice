@@ -6,13 +6,16 @@ import decouple
 from flask import Flask
 from flask_injector import FlaskInjector
 from injector import Injector
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app import models  # noqa: F401  (registers every table with SQLAlchemy)
+from app.analytics.geoip import GeoIPModule
 from app.api import api_bp
 from app.core.config import config_by_name
 from app.core.errors import register_app_error_handlers
 from app.core.extensions import db, migrate
 from app.core.middleware import register_request_logging
+from app.urls.redirects import redirects_bp
 
 
 def create_app(
@@ -38,17 +41,25 @@ def create_app(
     # Without this, Python's default WARNING level hides INFO logs under Gunicorn.
     app.logger.setLevel(logging.INFO)
 
+    proxies = app.config["TRUSTED_PROXY_COUNT"]
+    if proxies:
+        # Behind N trusted proxies: take the client IP, scheme and host from
+        # their X-Forwarded-* headers. Off by default, because clients can fake them.
+        app.wsgi_app = ProxyFix(  # type: ignore[method-assign]
+            app.wsgi_app, x_for=proxies, x_proto=proxies, x_host=proxies
+        )
+
     db.init_app(app)
     migrate.init_app(app, db)
 
     app.register_blueprint(api_bp)
+    app.register_blueprint(redirects_bp)
     register_app_error_handlers(app)
     register_request_logging(app)
 
     # Must come last: FlaskInjector only wraps views that are already registered.
-    # Services have no bindings to configure: the injector builds them from
-    # their constructors and injects them into the Flask-RESTX resources.
-    injector = Injector()
+    # Services are built from their constructors; modules configure the rest.
+    injector = Injector([GeoIPModule()])
     FlaskInjector(app=app, injector=injector)
     app.extensions["injector"] = injector
 

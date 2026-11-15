@@ -18,6 +18,17 @@ class Config:
     # does not turn the first requests afterwards into errors.
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
 
+    # DB-IP "IP to City Lite" database for click locations (optional: without
+    # the file, clicks are recorded without city and country).
+    GEOIP_DATABASE_PATH: str = decouple.config(
+        "GEOIP_DATABASE_PATH", default="geoip/dbip-city-lite.mmdb"
+    )
+    # Number of trusted reverse proxies in front of the app. When > 0, the client
+    # IP is taken from X-Forwarded-For; 0 ignores that header, which clients can fake.
+    TRUSTED_PROXY_COUNT: int = decouple.config(
+        "TRUSTED_PROXY_COUNT", default=0, cast=int
+    )
+
     REDIS_HOST: str = decouple.config("REDIS_HOST", default="localhost")
     REDIS_PORT: int = decouple.config("REDIS_PORT", default=6379, cast=int)
     REDIS_PASSWORD: str | None = decouple.config("REDIS_PASSWORD", default=None)

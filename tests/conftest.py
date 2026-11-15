@@ -41,8 +41,10 @@ def make_app(database_url: str) -> Iterator[AppFactory]:
     """Build apps connected to the test database; close their connections after."""
     created: list[Flask] = []
 
-    def factory(config_name: str | None = "testing") -> Flask:
-        app = create_app(config_name, {"SQLALCHEMY_DATABASE_URI": database_url})
+    def factory(config_name: str | None = "testing", **settings: Any) -> Flask:
+        app = create_app(
+            config_name, {"SQLALCHEMY_DATABASE_URI": database_url, **settings}
+        )
         created.append(app)
         return app
 

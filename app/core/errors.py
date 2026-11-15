@@ -19,6 +19,10 @@ class ShortCodeGenerationError(Exception):
     """Raised when no unused short code could be found after several attempts."""
 
 
+class LinkGoneError(Exception):
+    """The short URL exists but no longer redirects: deactivated or expired."""
+
+
 class ConflictError(Exception):
     """The request is valid but clashes with existing data, e.g. a taken username."""
 
@@ -93,6 +97,10 @@ def handle_not_found(error: ShortCodeNotFoundError) -> HandlerResult:
     return error_body("not_found", str(error)), 404
 
 
+def handle_gone(error: LinkGoneError) -> HandlerResult:
+    return error_body("gone", str(error)), 410
+
+
 def handle_conflict(error: ConflictError) -> HandlerResult:
     details = [ErrorDetail(field=error.field, message=error.message)]
     return (
@@ -141,6 +149,11 @@ def handle_unexpected_app_error(error: Exception) -> HandlerResult:
     return handle_unexpected_error(error)
 
 
+def handle_storage_app_error(error: OperationalError) -> HandlerResult:
+    current_app.logger.exception("Storage unavailable: %s", error)
+    return handle_storage_error(error)
+
+
 def register_error_handlers(api: Api) -> None:
     """Handlers for errors raised inside Flask-RESTX routes.
 
@@ -149,6 +162,7 @@ def register_error_handlers(api: Api) -> None:
     """
     api.errorhandler(ValidationError)(handle_validation_error)
     api.errorhandler(ShortCodeNotFoundError)(handle_not_found)
+    api.errorhandler(LinkGoneError)(handle_gone)
     api.errorhandler(ConflictError)(handle_conflict)
     api.errorhandler(ShortCodeGenerationError)(handle_generation_error)
     api.errorhandler(OperationalError)(handle_storage_error)
@@ -157,6 +171,9 @@ def register_error_handlers(api: Api) -> None:
 
 
 def register_app_error_handlers(app: Flask) -> None:
-    """Handlers for errors outside Flask-RESTX, e.g. paths no route matches."""
+    """Handlers for errors outside Flask-RESTX: the public redirect, unknown paths."""
+    app.register_error_handler(ShortCodeNotFoundError, handle_not_found)
+    app.register_error_handler(LinkGoneError, handle_gone)
+    app.register_error_handler(OperationalError, handle_storage_app_error)
     app.register_error_handler(HTTPException, handle_http_exception)
     app.register_error_handler(Exception, handle_unexpected_app_error)

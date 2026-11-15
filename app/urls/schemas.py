@@ -13,6 +13,9 @@ from pydantic import (
 
 from app.urls.models import CUSTOM_ALIAS_MAX_LENGTH, URL
 
+# Path segments used by other routes; an alias must not shadow them.
+RESERVED_CODES = frozenset({"api", "static", "swaggerui"})
+
 
 class ShortenRequest(BaseModel):
     model_config = ConfigDict(
@@ -76,6 +79,13 @@ class CreateUrlRequest(BaseModel):
         description="Tag names. Existing tags match case-insensitively; "
         "new names create new tags.",
     )
+
+    @field_validator("custom_alias")
+    @classmethod
+    def must_not_be_reserved(cls, value: str | None) -> str | None:
+        if value is not None and value.lower() in RESERVED_CODES:
+            raise ValueError("is reserved, choose another alias")
+        return value
 
     @field_validator("expires_at")
     @classmethod

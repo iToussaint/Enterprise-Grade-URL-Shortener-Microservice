@@ -128,7 +128,7 @@ def test_documented_status_codes(spec: dict[str, Any]) -> None:
     redirect = spec["paths"]["/{short_code}"]["get"]["responses"]
 
     assert set(create) == {"201", "400", "415", "422", "503"}
-    assert set(redirect) == {"302", "404", "503"}
+    assert set(redirect) == {"302", "404", "410", "503"}
     assert "Location" in create["201"]["headers"]
     assert "Location" in redirect["302"]["headers"]
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.errors import (
     ConflictError,
+    LinkGoneError,
     ShortCodeGenerationError,
     ShortCodeNotFoundError,
     violated_constraint,
@@ -42,13 +43,28 @@ class UrlShortenerService:
         db.session.commit()
         return short_code
 
-    def resolve(self, short_code: str) -> str:
-        original_url = db.session.scalar(
-            select(URL.original_url).where(URL.short_code == short_code)
-        )
-        if original_url is None:
-            raise ShortCodeNotFoundError(short_code)
-        return original_url
+    def resolve(self, code: str) -> URL:
+        """The URL a short code or custom alias points to, if it may redirect.
+
+        Raises ShortCodeNotFoundError (404) when nothing matches and
+        LinkGoneError (410) when the URL is deactivated or expired.
+        """
+        row = db.session.execute(
+            # "Expired" is decided by the database clock, as in URLManager.
+            select(URL, URL.expires_at <= func.now())
+            .where(or_(URL.short_code == code, URL.custom_alias == code))
+            # If an alias ever equals another URL's code, the code wins.
+            .order_by((URL.short_code == code).desc())
+            .limit(1)
+        ).first()
+        if row is None:
+            raise ShortCodeNotFoundError(code)
+        url, expired = row
+        if not url.is_active:
+            raise LinkGoneError("This short URL has been deactivated.")
+        if expired:
+            raise LinkGoneError("This short URL has expired.")
+        return url
 
     # ---- Module 6: URLs owned by a user -------------------------------------
 

@@ -15,6 +15,9 @@ poetry.toml
 # Environment variables and secrets
 .env
 
+# GeoIP database (downloaded by scripts/download_geoip.py, ~130 MB)
+geoip/
+
 # Tool caches
 .mypy_cache/
 .ruff_cache/

@@ -1,12 +1,13 @@
 from typing import Any
 
-from flask import redirect
 from flask_restx import Namespace, Resource
 from injector import inject
 from werkzeug.wrappers import Response
 
+from app.analytics.service import ClickService
 from app.core.errors import ErrorResponse
 from app.core.swagger import register_schema
+from app.urls.redirects import follow_short_link
 from app.urls.schemas import ShortenRequest, ShortenResponse
 from app.urls.service import UrlShortenerService
 
@@ -57,12 +58,15 @@ class ShortUrlCollection(Resource):
 
 
 @ns.route("/<string:short_code>")
-@ns.param("short_code", "The code returned when the short URL was created")
+@ns.param("short_code", "A short code or custom alias")
 class ShortUrlRedirect(Resource):
     @inject
-    def __init__(self, service: UrlShortenerService, **kwargs: Any) -> None:
+    def __init__(
+        self, service: UrlShortenerService, clicks: ClickService, **kwargs: Any
+    ) -> None:
         super().__init__(**kwargs)
         self._service = service
+        self._clicks = clicks
 
     @ns.response(
         302,
@@ -70,13 +74,15 @@ class ShortUrlRedirect(Resource):
         headers={"Location": "The original URL."},
     )
     @ns.response(404, "The short code does not exist.", error_model)
+    @ns.response(410, "The short URL was deactivated or has expired.", error_model)
     @ns.response(503, "The storage service is temporarily unavailable.", error_model)
     def get(self, short_code: str) -> Response:
         """Redirect to the original URL.
 
-        Open the short URL in a browser to follow the redirect. Swagger UI's
-        "Try it out" usually shows "Failed to fetch" for an existing code: the
-        browser follows the redirect to another site and then blocks reading
-        its response (CORS). Unknown codes return a 404 error body.
+        Same behaviour as the public link /<code>/: accepts a custom alias and
+        records a click. Open the short URL in a browser to follow the redirect.
+        Swagger UI's "Try it out" usually shows "Failed to fetch" for an existing
+        code: the browser follows the redirect to another site and then blocks
+        reading its response (CORS).
         """
-        return redirect(self._service.resolve(short_code), code=302)
+        return follow_short_link(short_code, self._service, self._clicks)

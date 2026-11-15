@@ -24,6 +24,8 @@ services:
       # and migrations generated in the container appear on the host.
       - ./app:/app/app
       - ./migrations:/app/migrations
+      # GeoIP database (scripts/download_geoip.py); optional, read-only.
+      - ./geoip:/app/geoip:ro
     depends_on:
       db:
         condition: service_healthy

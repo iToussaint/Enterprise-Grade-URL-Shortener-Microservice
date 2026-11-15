@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from flask import Response, request
+from flask import Response, request, url_for
 from flask_restx import Namespace, Resource
 from injector import inject
 
@@ -10,7 +10,6 @@ from app.auth.security import current_user, login_required
 from app.core.errors import ErrorResponse
 from app.core.swagger import register_schema
 from app.urls.models import URL
-from app.urls.routes import ShortUrlRedirect
 from app.urls.schemas import (
     CreateUrlRequest,
     ListUrlsParams,
@@ -69,8 +68,9 @@ class OwnUrlResource(Resource):
         self._service = service
 
     def to_response(self, url: URL) -> dict[str, Any]:
-        short_url: str = self.api.url_for(
-            ShortUrlRedirect, short_code=url.short_code, _external=True
+        # The public link people share: the alias if there is one.
+        short_url = url_for(
+            "redirects.follow", code=url.custom_alias or url.short_code, _external=True
         )
         return UrlResponse.from_url(url, short_url).model_dump(mode="json")
 

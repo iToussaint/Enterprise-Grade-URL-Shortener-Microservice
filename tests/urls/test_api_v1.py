@@ -72,7 +72,7 @@ def test_create_returns_201_with_details_and_location(client: FlaskClient) -> No
     code = body["short_code"]
     assert body["owner"] == "alice"
     assert body["original_url"] == LONG_URL
-    assert body["short_url"] == f"http://localhost/api/{code}"
+    assert body["short_url"] == f"http://localhost/{code}/"  # the public link
     assert body["tags"] == []
     assert body["is_active"] is True
     assert body["click_count"] == 0
@@ -97,6 +97,7 @@ def test_create_with_alias_expiry_and_tags(app: Flask, client: FlaskClient) -> N
     assert response.status_code == 201
     body = response.json
     assert body["custom_alias"] == "spring-sale"
+    assert body["short_url"] == "http://localhost/spring-sale/"  # alias link
     assert datetime.fromisoformat(body["expires_at"]) == datetime.fromisoformat(
         expires_at
     )
