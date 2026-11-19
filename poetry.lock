@@ -558,6 +558,26 @@ Flask = ">=2.2.0"
 injector = ">=0.20.0"
 
 [[package]]
+name = "flask-jwt-extended"
+version = "4.7.4"
+description = "Extended JWT integration with Flask"
+optional = false
+python-versions = "<4,>=3.10"
+groups = ["main"]
+files = [
+    {file = "flask_jwt_extended-4.7.4-py2.py3-none-any.whl", hash = "sha256:daad1981117f4972d63c363d013f290de307aad781a935921b603b714817393c"},
+    {file = "flask_jwt_extended-4.7.4.tar.gz", hash = "sha256:78fd0f460317facf3a0084a6457ffaf2f1dda9eefbd576f94cea35b0eadd5531"},
+]
+
+[package.dependencies]
+Flask = ">=2.0,<4.0"
+PyJWT = ">=2.11.0,<3.0"
+Werkzeug = ">=0.14"
+
+[package.extras]
+asymmetric-crypto = ["cryptography (>=3.3.1)"]
+
+[[package]]
 name = "flask-migrate"
 version = "4.1.0"
 description = "SQLAlchemy database migrations for Flask applications using Alembic."
@@ -1669,6 +1689,21 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
+name = "pyjwt"
+version = "2.15.1"
+description = "JSON Web Token implementation in Python"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pyjwt-2.15.1-py3-none-any.whl", hash = "sha256:42d59d631f7768a1028a64c7ff581a9bf7519804daf91fc5b6c56e30eec5e193"},
+    {file = "pyjwt-2.15.1.tar.gz", hash = "sha256:4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8"},
+]
+
+[package.extras]
+crypto = ["cryptography (>=3.4.0)"]
+
+[[package]]
 name = "pytest"
 version = "9.2.0"
 description = "pytest: simple powerful testing with Python"
@@ -2498,4 +2533,4 @@ dev = ["pytest", "setuptools"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "0b07843c8a4572bf2160c5f402dab0aa80547ff4e1efb0e0a3ce5fbcd34cc08e"
+content-hash = "9da736793a15e1d85cf0889d9902e88d9cd7483b0b0139a69d7254c3aca9ac8c"

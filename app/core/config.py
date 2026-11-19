@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import decouple
 
 
@@ -29,6 +31,13 @@ class Config:
         "TRUSTED_PROXY_COUNT", default=0, cast=int
     )
 
+    # Signs the JWT access and refresh tokens. Required (at least 32 characters):
+    # anyone who knows it can forge tokens, so it only lives in .env.
+    JWT_SECRET_KEY: str | None = decouple.config("JWT_SECRET_KEY", default=None)
+    JWT_ALGORITHM = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=15)
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
+
     REDIS_HOST: str = decouple.config("REDIS_HOST", default="localhost")
     REDIS_PORT: int = decouple.config("REDIS_PORT", default=6379, cast=int)
     REDIS_PASSWORD: str | None = decouple.config("REDIS_PASSWORD", default=None)
@@ -44,6 +53,7 @@ class ProductionConfig(Config):
 
 class TestingConfig(Config):
     TESTING = True
+    JWT_SECRET_KEY = "test-only-secret-key-that-is-long-enough-for-hs256"
 
 
 config_by_name: dict[str, type[Config]] = {

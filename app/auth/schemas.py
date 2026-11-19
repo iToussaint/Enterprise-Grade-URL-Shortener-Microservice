@@ -51,3 +51,53 @@ class UserResponse(BaseModel):
     tier: Tier
     is_premium: bool
     date_joined: datetime
+
+
+class LoginRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"username": "alice", "password": "correct horse battery staple"}
+        }
+    )
+
+    username: str = Field(min_length=1, max_length=150)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class RefreshRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"refresh": "<refresh_token from login>"}}
+    )
+
+    refresh: str = Field(min_length=1, description="The refresh token from login.")
+
+
+class AccessTokenResponse(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "token_type": "Bearer",
+                "expires_in": 900,
+            }
+        }
+    )
+
+    access_token: str = Field(description="Send as 'Authorization: Bearer <token>'.")
+    token_type: str = "Bearer"
+    expires_in: int = Field(description="Seconds until the access token expires.")
+
+
+class TokenResponse(AccessTokenResponse):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                "token_type": "Bearer",
+                "expires_in": 900,
+            }
+        }
+    )
+
+    refresh_token: str = Field(description="Use with /refresh/ for new access tokens.")
