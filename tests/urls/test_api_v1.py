@@ -11,12 +11,12 @@ from app.urls.models import URL, Tag
 from app.users.models import User
 from tests.conftest import StatementRecorder
 from tests.contract import assert_matches_schema
-from tests.factories import create_url, create_user
+from tests.factories import bearer, create_url, create_user
 
 URLS = "/api/v1/urls/"
 LONG_URL = "https://www.example.com/spring-sale"
 PASSWORD = "correct horse battery staple"
-ALICE = ("alice", PASSWORD)
+ALICE = "alice"
 
 
 @pytest.fixture(autouse=True)
@@ -33,12 +33,14 @@ def user_id(app: Flask, username: str) -> int:
         ).one()
 
 
-def create(client: FlaskClient, auth: tuple[str, str] = ALICE, **fields: Any) -> Any:
-    return client.post(URLS, json={"url": LONG_URL, **fields}, auth=auth)
+def create(client: FlaskClient, user: str = ALICE, **fields: Any) -> Any:
+    return client.post(
+        URLS, json={"url": LONG_URL, **fields}, headers=bearer(client, user)
+    )
 
 
-def get(client: FlaskClient, path: str, auth: tuple[str, str] = ALICE) -> Any:
-    return client.get(path, auth=auth)
+def get(client: FlaskClient, path: str, user: str = ALICE) -> Any:
+    return client.get(path, headers=bearer(client, user))
 
 
 def future(days: int = 30) -> str:
@@ -58,7 +60,7 @@ def test_endpoints_require_authentication(
     response = getattr(client, method)(path, json={"url": LONG_URL})
 
     assert response.status_code == 401
-    assert response.headers["WWW-Authenticate"].startswith("Basic")
+    assert response.headers["WWW-Authenticate"].startswith("Bearer")
 
 
 # ---- create -----------------------------------------------------------------
@@ -110,7 +112,7 @@ def test_create_with_alias_expiry_and_tags(app: Flask, client: FlaskClient) -> N
 def test_alias_must_be_unique(client: FlaskClient) -> None:
     create(client, custom_alias="spring-sale")
 
-    response = create(client, auth=("bob", PASSWORD), custom_alias="spring-sale")
+    response = create(client, user="bob", custom_alias="spring-sale")
 
     assert response.status_code == 409
     assert response.json["error"]["details"][0]["field"] == "custom_alias"
@@ -157,7 +159,7 @@ def test_create_validates_fields(
 
 def test_list_shows_only_my_urls(client: FlaskClient) -> None:
     mine = create(client).json["short_code"]
-    create(client, auth=("bob", PASSWORD))
+    create(client, user="bob")
 
     response = get(client, URLS)
 
@@ -228,7 +230,7 @@ def test_get_other_or_unknown_url_is_not_found(
 ) -> None:
     code = "zzzzzzz"
     if owner is not None:
-        code = create(client, auth=(owner, PASSWORD)).json["short_code"]
+        code = create(client, user=owner).json["short_code"]
 
     response = get(client, f"{URLS}{code}/")
 
@@ -253,8 +255,11 @@ def test_list_runs_a_fixed_number_of_queries(
 ) -> None:
     create_tagged_urls(app, count)
 
+    headers = bearer(client, ALICE)  # outside the block: only the app's queries count
     with sql_statements() as statements:
-        body = get(client, URLS).json
+        body = client.get(URLS, headers=headers).json
+
+    assert body is not None
 
     assert len(body["items"]) == count
     assert all(
@@ -286,10 +291,8 @@ def test_without_eager_loading_queries_grow_with_the_rows(
 # ---- update (PUT) -----------------------------------------------------------
 
 
-def put(
-    client: FlaskClient, code: str, auth: tuple[str, str] = ALICE, **body: Any
-) -> Any:
-    return client.put(f"{URLS}{code}/", json=body, auth=auth)
+def put(client: FlaskClient, code: str, user: str = ALICE, **body: Any) -> Any:
+    return client.put(f"{URLS}{code}/", json=body, headers=bearer(client, user))
 
 
 def test_put_replaces_every_editable_field(client: FlaskClient) -> None:
@@ -323,7 +326,7 @@ def test_put_resets_optional_fields_that_are_left_out(client: FlaskClient) -> No
     code = create(
         client, custom_alias="spring-sale", expires_at=future(), tags=["Social"]
     ).json["short_code"]
-    client.delete(f"{URLS}{code}/", auth=ALICE)
+    client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE))
 
     body = put(client, code, url=LONG_URL).json
 
@@ -342,7 +345,7 @@ def test_put_can_keep_its_own_alias(client: FlaskClient) -> None:
 
 
 def test_put_cannot_take_another_urls_alias_or_code(client: FlaskClient) -> None:
-    other = create(client, auth=("bob", PASSWORD), custom_alias="bobs-link").json
+    other = create(client, user="bob", custom_alias="bobs-link").json
     code = create(client).json["short_code"]
 
     for alias in ("bobs-link", other["short_code"]):
@@ -374,7 +377,7 @@ def test_put_keeps_click_history(app: Flask, client: FlaskClient) -> None:
 def test_delete_deactivates_but_keeps_the_url(client: FlaskClient) -> None:
     code = create(client).json["short_code"]
 
-    response = client.delete(f"{URLS}{code}/", auth=ALICE)
+    response = client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE))
 
     assert response.status_code == 204
     assert response.get_data() == b""
@@ -387,9 +390,12 @@ def test_delete_deactivates_but_keeps_the_url(client: FlaskClient) -> None:
 
 def test_delete_twice_is_harmless(client: FlaskClient) -> None:
     code = create(client).json["short_code"]
-    client.delete(f"{URLS}{code}/", auth=ALICE)
+    client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE))
 
-    assert client.delete(f"{URLS}{code}/", auth=ALICE).status_code == 204
+    assert (
+        client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE)).status_code
+        == 204
+    )
 
 
 # ---- ownership and authentication for PUT / DELETE --------------------------
@@ -397,14 +403,14 @@ def test_delete_twice_is_harmless(client: FlaskClient) -> None:
 
 @pytest.mark.parametrize("method", ["put", "delete"])
 def test_cannot_change_another_users_url(client: FlaskClient, method: str) -> None:
-    code = create(client, auth=("bob", PASSWORD)).json["short_code"]
+    code = create(client, user="bob").json["short_code"]
 
     response = getattr(client, method)(
-        f"{URLS}{code}/", json={"url": LONG_URL}, auth=ALICE
+        f"{URLS}{code}/", json={"url": LONG_URL}, headers=bearer(client, ALICE)
     )
 
     assert response.status_code == 404
-    bobs = client.get(f"{URLS}{code}/", auth=("bob", PASSWORD)).json
+    bobs = client.get(f"{URLS}{code}/", headers=bearer(client, "bob")).json
     assert bobs is not None and bobs["is_active"] is True
 
 

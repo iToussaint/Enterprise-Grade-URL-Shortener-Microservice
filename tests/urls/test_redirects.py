@@ -12,7 +12,7 @@ from app.analytics.models import Click
 from app.core.extensions import db
 from app.urls.models import URL
 from tests.conftest import AppFactory
-from tests.factories import create_url, create_user
+from tests.factories import bearer, create_url, create_user
 
 TARGET = "https://www.example.com/landing"
 KIGALI_IP = "41.186.0.1"
@@ -165,8 +165,6 @@ def test_behind_a_trusted_proxy_the_forwarded_ip_is_located(
 def test_aliases_cannot_shadow_other_routes(client: FlaskClient, alias: str) -> None:
     body: dict[str, Any] = {"url": TARGET, "custom_alias": alias}
 
-    response = client.post(
-        "/api/v1/urls/", json=body, auth=("alice", "correct horse battery staple")
-    )
+    response = client.post("/api/v1/urls/", json=body, headers=bearer(client, "alice"))
 
     assert response.status_code == 422
