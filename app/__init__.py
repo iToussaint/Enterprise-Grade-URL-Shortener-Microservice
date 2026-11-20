@@ -13,7 +13,7 @@ from app.analytics.geoip import GeoIPModule
 from app.api import api_bp
 from app.core.config import config_by_name
 from app.core.errors import register_app_error_handlers
-from app.core.extensions import db, jwt, migrate
+from app.core.extensions import db, jwt, limiter, migrate
 from app.core.middleware import register_request_logging
 from app.urls.redirects import redirects_bp
 from app.users.commands import users_cli
@@ -63,6 +63,7 @@ def create_app(
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+    limiter.init_app(app)
 
     app.register_blueprint(api_bp)
     app.register_blueprint(redirects_bp)

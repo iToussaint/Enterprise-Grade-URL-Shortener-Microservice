@@ -1,4 +1,5 @@
 from datetime import timedelta
+from urllib.parse import quote
 
 import decouple
 
@@ -42,6 +43,20 @@ class Config:
     REDIS_PORT: int = decouple.config("REDIS_PORT", default=6379, cast=int)
     REDIS_PASSWORD: str | None = decouple.config("REDIS_PASSWORD", default=None)
 
+    # Rate limiting (Flask-Limiter). Counters live in Redis, so every Gunicorn
+    # worker shares them; if Redis is unreachable, each worker falls back to
+    # in-memory counters instead of switching limits off.
+    RATELIMIT_STORAGE_URI = (
+        "redis://"
+        + (f":{quote(REDIS_PASSWORD, safe='')}@" if REDIS_PASSWORD else "")
+        + f"{REDIS_HOST}:{REDIS_PORT}/0"
+    )
+    RATELIMIT_STRATEGY = "moving-window"  # any 60 seconds, not per clock minute
+    RATELIMIT_HEADERS_ENABLED = True  # X-RateLimit-* and Retry-After headers
+    RATELIMIT_SWALLOW_ERRORS = True
+    RATELIMIT_IN_MEMORY_FALLBACK_ENABLED = True
+    LOGIN_RATE_LIMIT = "5 per minute"
+
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -54,6 +69,7 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     TESTING = True
     JWT_SECRET_KEY = "test-only-secret-key-that-is-long-enough-for-hs256"
+    RATELIMIT_STORAGE_URI = "memory://"
 
 
 config_by_name: dict[str, type[Config]] = {
