@@ -1,7 +1,7 @@
 import secrets
 import string
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, NoReturn
 
 from injector import inject
@@ -10,8 +10,10 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.auth.permissions import is_admin
 from app.core.errors import (
     ConflictError,
+    ForbiddenError,
     LinkGoneError,
     ShortCodeGenerationError,
     ShortCodeNotFoundError,
@@ -20,7 +22,7 @@ from app.core.errors import (
 from app.core.extensions import db
 from app.urls.managers import URLManager, URLQuery
 from app.urls.models import URL, Tag
-from app.users.models import User
+from app.users.models import FREE_MAX_ACTIVE_URLS, PREMIUM_TIERS, User
 
 CODE_ALPHABET = string.ascii_letters + string.digits
 CODE_LENGTH = 7
@@ -76,6 +78,12 @@ class UrlShortenerService:
         expires_at: datetime | None = None,
         tag_names: Sequence[str] = (),
     ) -> URL:
+        self._enforce_free_plan(
+            owner,
+            actor=owner,
+            sets_new_alias=custom_alias is not None,
+            becomes_active=True,
+        )
         if custom_alias is not None:
             self._ensure_alias_is_free(custom_alias)
         try:
@@ -139,6 +147,7 @@ class UrlShortenerService:
     def update(
         self,
         url: URL,
+        actor: User,
         original_url: str,
         custom_alias: str | None,
         expires_at: datetime | None,
@@ -149,6 +158,13 @@ class UrlShortenerService:
 
         The short code never changes: it is the link people already shared.
         """
+        self._enforce_free_plan(
+            url.owner,
+            actor=actor,
+            sets_new_alias=custom_alias not in (None, url.custom_alias),
+            becomes_active=not _is_live(url.is_active, url.expires_at)
+            and _is_live(is_active, expires_at),
+        )
         if custom_alias is not None and custom_alias != url.custom_alias:
             self._ensure_alias_is_free(custom_alias, ignore_url_id=url.id)
 
@@ -169,6 +185,41 @@ class UrlShortenerService:
         db.session.commit()
 
     # ---- helpers ------------------------------------------------------------
+
+    def _enforce_free_plan(
+        self,
+        owner: User | None,
+        actor: User,
+        sets_new_alias: bool,
+        becomes_active: bool,
+    ) -> None:
+        """Free accounts: no new custom aliases, at most 10 active URLs (403).
+
+        Limits follow the owner's plan. Premium and Admin owners have none, and
+        an Admin changing someone else's URL is moderating, not using a plan.
+        """
+        if owner is None or owner.tier in PREMIUM_TIERS or is_admin(actor):
+            return
+        if sets_new_alias:
+            raise ForbiddenError("Custom aliases require a Premium account.")
+        if not becomes_active:
+            return
+
+        # Lock the owner's row until this transaction ends, so simultaneous
+        # requests count one after another and cannot pass the limit together.
+        db.session.execute(select(User.id).where(User.id == owner.id).with_for_update())
+        active = db.session.scalar(
+            select(func.count()).select_from(
+                self._urls.active_urls(
+                    select(URL).where(URL.owner_id == owner.id)
+                ).subquery()
+            )
+        )
+        if active is not None and active >= FREE_MAX_ACTIVE_URLS:
+            raise ForbiddenError(
+                f"Free accounts can have at most {FREE_MAX_ACTIVE_URLS} active URLs."
+                " Deactivate one or upgrade to Premium."
+            )
 
     def _insert_with_new_code(self, **values: Any) -> tuple[int, str]:
         """Insert a URL row under a new random code; return its id and code."""
@@ -233,3 +284,8 @@ class UrlShortenerService:
         # joinedload  = Django select_related: owner comes in the same query (JOIN).
         # selectinload = Django prefetch_related: one extra query loads all tags.
         return query.options(joinedload(URL.owner), selectinload(URL.tags))
+
+
+def _is_live(is_active: bool, expires_at: datetime | None) -> bool:
+    """Counted as active: what URLManager.active_urls() selects."""
+    return is_active and (expires_at is None or expires_at > datetime.now(UTC))
