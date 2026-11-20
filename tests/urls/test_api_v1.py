@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.extensions import db
 from app.urls.models import URL, Tag
-from app.users.models import User
+from app.users.models import Tier, User
 from tests.conftest import StatementRecorder
 from tests.contract import assert_matches_schema
 from tests.factories import bearer, create_url, create_user
@@ -24,6 +24,7 @@ def users(app: Flask) -> None:
     with app.app_context():
         create_user("alice")
         create_user("bob")
+        create_user("admin", tier=Tier.ADMIN)
 
 
 def user_id(app: Flask, username: str) -> int:
@@ -41,6 +42,14 @@ def create(client: FlaskClient, user: str = ALICE, **fields: Any) -> Any:
 
 def get(client: FlaskClient, path: str, user: str = ALICE) -> Any:
     return client.get(path, headers=bearer(client, user))
+
+
+def create_anonymous(client: FlaskClient) -> str:
+    """A URL made through the Module 5 endpoint, which has no owner."""
+    body = client.post("/api/urls", json={"url": LONG_URL}).json
+    assert body is not None
+    code: str = body["short_code"]
+    return code
 
 
 def future(days: int = 30) -> str:
@@ -224,18 +233,30 @@ def test_get_returns_my_url(client: FlaskClient) -> None:
     assert response.json["tags"] == ["Social"]
 
 
-@pytest.mark.parametrize("owner", ["bob", None], ids=["other user", "unknown"])
-def test_get_other_or_unknown_url_is_not_found(
-    client: FlaskClient, owner: str | None
-) -> None:
-    code = "zzzzzzz"
-    if owner is not None:
-        code = create(client, user=owner).json["short_code"]
+def test_any_user_can_read_another_users_url(client: FlaskClient) -> None:
+    # IsOwnerOrReadOnly: reading is allowed for every authenticated user.
+    code = create(client, user="bob").json["short_code"]
 
     response = get(client, f"{URLS}{code}/")
 
-    # 404, not 403: the response does not reveal that someone else owns the code.
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json["owner"] == "bob"
+
+
+def test_unknown_code_is_not_found(client: FlaskClient) -> None:
+    assert get(client, f"{URLS}zzzzzzz/").status_code == 404
+
+
+def test_anonymous_module5_urls_are_readable_with_no_owner(
+    client: FlaskClient,
+) -> None:
+    code = create_anonymous(client)
+
+    response = get(client, f"{URLS}{code}/")
+
+    assert response.status_code == 200
+    assert response.json["owner"] is None
+    assert_matches_schema(client, "UrlResponse", response.json)
 
 
 # ---- N+1 prevention ---------------------------------------------------------
@@ -409,9 +430,38 @@ def test_cannot_change_another_users_url(client: FlaskClient, method: str) -> No
         f"{URLS}{code}/", json={"url": LONG_URL}, headers=bearer(client, ALICE)
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 403
+    assert response.json["error"] == {
+        "code": "forbidden",
+        "message": "You can only change your own URLs.",
+    }
     bobs = client.get(f"{URLS}{code}/", headers=bearer(client, "bob")).json
     assert bobs is not None and bobs["is_active"] is True
+    assert bobs["original_url"] == LONG_URL
+
+
+def test_admins_can_change_any_url(client: FlaskClient) -> None:
+    code = create(client, user="bob").json["short_code"]
+
+    updated = put(client, code, user="admin", url="https://example.org/moderated")
+    deleted = client.delete(f"{URLS}{code}/", headers=bearer(client, "admin"))
+
+    assert updated.status_code == 200
+    assert updated.json["owner"] == "bob"  # the owner does not change
+    assert deleted.status_code == 204
+
+
+def test_anonymous_urls_can_only_be_changed_by_admins(client: FlaskClient) -> None:
+    code = create_anonymous(client)
+
+    assert put(client, code, url=LONG_URL).status_code == 403
+    assert put(client, code, user="admin", url=LONG_URL).status_code == 200
+
+
+def test_unknown_code_is_404_before_permissions(client: FlaskClient) -> None:
+    response = put(client, "zzzzzzz", url=LONG_URL)
+
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize("method", ["put", "delete"])

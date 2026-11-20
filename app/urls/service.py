@@ -121,15 +121,14 @@ class UrlShortenerService:
         )
         return list(db.session.scalars(query)), total or 0
 
-    def get_for(self, owner: User, short_code: str, with_details: bool = True) -> URL:
-        """The owner's URL with this code. Other users' URLs are "not found".
+    def get(self, short_code: str, with_details: bool = True) -> URL:
+        """The URL with this code, whoever owns it.
 
+        Who may read or change it is checked by the caller (app/auth/permissions.py).
         with_details=False skips loading the owner and tags, for callers that
         only need the URL row (e.g. analytics).
         """
-        query = select(URL).where(
-            URL.short_code == short_code, URL.owner_id == owner.id
-        )
+        query = select(URL).where(URL.short_code == short_code)
         if with_details:
             query = self._with_owner_and_tags(query)
         url: URL | None = db.session.scalar(query)
@@ -137,21 +136,19 @@ class UrlShortenerService:
             raise ShortCodeNotFoundError(short_code)
         return url
 
-    def update_for(
+    def update(
         self,
-        owner: User,
-        short_code: str,
+        url: URL,
         original_url: str,
         custom_alias: str | None,
         expires_at: datetime | None,
         tag_names: Sequence[str],
         is_active: bool,
     ) -> URL:
-        """Replace the editable fields of the owner's URL (PUT semantics).
+        """Replace the editable fields of a URL (PUT semantics).
 
         The short code never changes: it is the link people already shared.
         """
-        url = self.get_for(owner, short_code)
         if custom_alias is not None and custom_alias != url.custom_alias:
             self._ensure_alias_is_free(custom_alias, ignore_url_id=url.id)
 
@@ -166,9 +163,8 @@ class UrlShortenerService:
             self._raise_alias_conflict(error)
         return url
 
-    def deactivate_for(self, owner: User, short_code: str) -> None:
+    def deactivate(self, url: URL) -> None:
         """Soft delete: the row and its clicks stay, the link stops working."""
-        url = self.get_for(owner, short_code)
         url.is_active = False
         db.session.commit()
 
