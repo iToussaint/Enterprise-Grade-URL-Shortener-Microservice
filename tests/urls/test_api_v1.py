@@ -260,6 +260,88 @@ def test_anonymous_module5_urls_are_readable_with_no_owner(
     assert_matches_schema(client, "UrlResponse", response.json)
 
 
+# ---- tag search -------------------------------------------------------------
+
+
+@pytest.fixture
+def tagged(client: FlaskClient) -> dict[str, str]:
+    """Four of alice's URLs: two marketing, one social, one untagged."""
+    codes = {}
+    for name, tags in (
+        ("launch", ["Marketing", "Social"]),
+        ("promo", ["marketing"]),
+        ("social", ["Social"]),
+        ("plain", []),
+    ):
+        codes[name] = create(client, tags=tags).json["short_code"]
+    return codes
+
+
+def listed(client: FlaskClient, query: str) -> Any:
+    body = get(client, f"{URLS}?{query}").json
+    assert body is not None
+    return body
+
+
+@pytest.mark.usefixtures("tagged")
+@pytest.mark.parametrize("tag", ["Marketing", "marketing", "MARKETING"])
+def test_list_filters_by_tag_case_insensitively(client: FlaskClient, tag: str) -> None:
+    body = listed(client, f"tag={tag}")
+
+    assert body["total"] == 2
+    assert all("Marketing" in item["tags"] for item in body["items"])
+
+
+def test_a_url_with_several_tags_is_listed_once(
+    client: FlaskClient, tagged: dict[str, str]
+) -> None:
+    body = listed(client, "tag=Social")
+
+    codes = [item["short_code"] for item in body["items"]]
+    assert sorted(codes) == sorted([tagged["launch"], tagged["social"]])
+    assert body["total"] == 2
+
+
+def test_tag_filter_combines_with_status(
+    client: FlaskClient, tagged: dict[str, str]
+) -> None:
+    client.delete(f"{URLS}{tagged['promo']}/", headers=bearer(client, ALICE))
+
+    body = listed(client, "tag=marketing&status=active")
+
+    assert [item["short_code"] for item in body["items"]] == [tagged["launch"]]
+
+
+@pytest.mark.usefixtures("tagged")
+def test_unknown_tag_lists_nothing(client: FlaskClient) -> None:
+    body = listed(client, "tag=Nonexistent")
+
+    assert (body["items"], body["total"]) == ([], 0)
+
+
+@pytest.mark.usefixtures("tagged")
+def test_tag_filter_only_searches_my_urls(client: FlaskClient) -> None:
+    create(client, user="bob", tags=["Marketing"])
+
+    assert listed(client, "tag=Marketing")["total"] == 2
+
+
+def test_empty_tag_is_rejected(client: FlaskClient) -> None:
+    assert get(client, f"{URLS}?tag=").status_code == 422
+
+
+@pytest.mark.usefixtures("tagged")
+def test_tag_filter_keeps_a_fixed_number_of_queries(
+    client: FlaskClient, sql_statements: StatementRecorder
+) -> None:
+    headers = bearer(client, ALICE)  # outside the block: only the app's queries count
+    with sql_statements() as statements:
+        client.get(f"{URLS}?tag=Marketing", headers=headers)
+
+    assert len(statements) == 4
+    assert "EXISTS" in statements[2]
+
+
 # ---- N+1 prevention ---------------------------------------------------------
 
 

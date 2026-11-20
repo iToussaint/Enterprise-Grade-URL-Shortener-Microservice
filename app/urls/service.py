@@ -108,6 +108,7 @@ class UrlShortenerService:
         sort: Literal["newest", "popular"] = "newest",
         page: int = 1,
         page_size: int = 20,
+        tag: str | None = None,
     ) -> tuple[list[URL], int]:
         """One page of the owner's URLs, and how many match in total."""
         query = select(URL).where(URL.owner_id == owner.id)
@@ -115,6 +116,10 @@ class UrlShortenerService:
             query = self._urls.active_urls(query)
         elif status == "expired":
             query = self._urls.expired_urls(query)
+        if tag is not None:
+            # EXISTS (… url_tags JOIN tags …): keeps one row per URL, so the
+            # total and the pages stay right; tag names match case-insensitively.
+            query = query.where(URL.tags.any(func.lower(Tag.name) == tag.lower()))
 
         total = db.session.scalar(select(func.count()).select_from(query.subquery()))
 

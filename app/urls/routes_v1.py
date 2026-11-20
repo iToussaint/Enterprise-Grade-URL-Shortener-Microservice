@@ -47,6 +47,11 @@ LIST_PARAMS = {
         "default": "newest",
         "description": "popular: most clicked first.",
     },
+    "tag": {
+        "in": "query",
+        "type": "string",
+        "description": "Only URLs with this tag (case-insensitive), e.g. Marketing.",
+    },
     "page": {"in": "query", "type": "integer", "default": 1, "minimum": 1},
     "page_size": {
         "in": "query",
@@ -87,13 +92,19 @@ class OwnUrlCollection(OwnUrlResource):
     def get(self) -> dict[str, Any]:
         """List your short URLs.
 
-        Filter with `status`, order with `sort`, and page through the results.
+        Filter with `status` and `tag`, order with `sort`, and page through the
+        results.
         Each URL's owner and tags are loaded with a fixed number of queries,
         however many URLs the page holds.
         """
         params = ListUrlsParams.model_validate(request.args.to_dict())
         urls, total = self._service.list_for(
-            current_user(), params.status, params.sort, params.page, params.page_size
+            current_user(),
+            params.status,
+            params.sort,
+            params.page,
+            params.page_size,
+            tag=params.tag,
         )
         return {
             "items": [self.to_response(url) for url in urls],
