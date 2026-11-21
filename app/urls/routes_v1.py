@@ -11,6 +11,7 @@ from app.auth.security import current_user, login_required
 from app.core.errors import ErrorResponse
 from app.core.swagger import register_schema
 from app.urls.models import URL
+from app.urls.sanitize import validation_context
 from app.urls.schemas import (
     CreateUrlRequest,
     ListUrlsParams,
@@ -135,7 +136,9 @@ class OwnUrlCollection(OwnUrlResource):
         Optionally set an expiry date and tags. Free accounts: at most 10 active
         URLs and no custom alias; Premium: unlimited, with custom aliases.
         """
-        payload = CreateUrlRequest.model_validate(ns.payload)
+        payload = CreateUrlRequest.model_validate(
+            ns.payload, context=validation_context(request.host_url)
+        )
         url = self._service.create_for(
             current_user(),
             str(payload.url),
@@ -192,7 +195,9 @@ class OwnUrlItem(OwnUrlResource):
         Set `is_active` to true to reactivate a deactivated URL.
         """
         url = self.url_for_request(short_code)
-        payload = UpdateUrlRequest.model_validate(ns.payload)
+        payload = UpdateUrlRequest.model_validate(
+            ns.payload, context=validation_context(request.host_url)
+        )
         url = self._service.update(
             url,
             current_user(),

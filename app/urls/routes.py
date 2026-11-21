@@ -1,5 +1,6 @@
 from typing import Any
 
+from flask import request
 from flask_restx import Namespace, Resource
 from injector import inject
 from werkzeug.wrappers import Response
@@ -8,6 +9,7 @@ from app.analytics.service import ClickService
 from app.core.errors import ErrorResponse
 from app.core.swagger import register_schema
 from app.urls.redirects import follow_short_link
+from app.urls.sanitize import validation_context
 from app.urls.schemas import ShortenRequest, ShortenResponse
 from app.urls.service import UrlShortenerService
 
@@ -43,7 +45,9 @@ class ShortUrlCollection(Resource):
         under a new random 7-character code and returns the full short URL.
         Every request creates a new code, even for a URL shortened before.
         """
-        payload = ShortenRequest.model_validate(ns.payload)
+        payload = ShortenRequest.model_validate(
+            ns.payload, context=validation_context(request.host_url)
+        )
         original_url = str(payload.url)
         short_code = self._service.shorten(original_url)
         # _external=True builds an absolute URL from the current request's host.
