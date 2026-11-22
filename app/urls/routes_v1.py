@@ -22,7 +22,7 @@ from app.urls.service import UrlShortenerService
 ns = Namespace(
     "my-urls",
     path="/v1/urls",
-    description="Manage your own short URLs (HTTP Basic authentication)",
+    description="Manage your own short URLs (JWT access token)",
 )
 
 create_request_model = register_schema(ns, CreateUrlRequest)
@@ -76,7 +76,7 @@ class OwnUrlResource(Resource):
 
 
 @ns.route("/")
-@ns.doc(security="basicAuth")
+@ns.doc(security="bearerAuth")
 @ns.response(401, "Missing or invalid credentials.", error_model)
 @ns.response(503, "The storage service is temporarily unavailable.", error_model)
 class OwnUrlCollection(OwnUrlResource):
@@ -133,7 +133,7 @@ class OwnUrlCollection(OwnUrlResource):
 
 @ns.route("/<string:short_code>/")
 @ns.param("short_code", "The URL's short code")
-@ns.doc(security="basicAuth")
+@ns.doc(security="bearerAuth")
 @ns.response(401, "Missing or invalid credentials.", error_model)
 @ns.response(404, "You have no URL with this code.", error_model)
 @ns.response(503, "The storage service is temporarily unavailable.", error_model)

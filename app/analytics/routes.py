@@ -42,7 +42,7 @@ PARAMS = {
 
 @ns.route("/<string:short_code>/")
 @ns.param("short_code", "The URL's short code")
-@ns.doc(security="basicAuth")
+@ns.doc(security="bearerAuth")
 class UrlAnalytics(Resource):
     method_decorators = [login_required]
 
