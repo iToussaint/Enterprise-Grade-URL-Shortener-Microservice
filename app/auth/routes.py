@@ -1,5 +1,6 @@
 from typing import Any
 
+from flask import current_app
 from flask_restx import Namespace, Resource
 from injector import inject
 
@@ -13,6 +14,7 @@ from app.auth.schemas import (
 )
 from app.auth.service import AuthService
 from app.core.errors import ErrorResponse
+from app.core.extensions import limiter
 from app.core.swagger import register_schema
 
 ns = Namespace(
@@ -67,7 +69,19 @@ class Login(AuthResource):
     @ns.response(401, "Invalid username or password.", error_model)
     @ns.response(415, "The Content-Type is not application/json.", error_model)
     @ns.response(422, "A field is missing or invalid.", error_model)
+    @ns.response(
+        429,
+        "Too many login attempts from this address (5 per minute).",
+        error_model,
+        headers={"Retry-After": "Seconds to wait before trying again."},
+    )
     @ns.response(503, "The storage service is temporarily unavailable.", error_model)
+    # Counts every attempt from the client's IP, successful or not, against
+    # brute-force password guessing.
+    @limiter.limit(
+        lambda: str(current_app.config["LOGIN_RATE_LIMIT"]),
+        error_message="Too many login attempts. Please wait and try again.",
+    )
     def post(self) -> dict[str, Any]:
         """Log in and receive an access token and a refresh token.
 
