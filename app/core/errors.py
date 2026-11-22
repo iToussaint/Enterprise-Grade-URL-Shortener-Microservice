@@ -23,6 +23,10 @@ class LinkGoneError(Exception):
     """The short URL exists but no longer redirects: deactivated or expired."""
 
 
+class AuthenticationError(Exception):
+    """Credentials or a token were missing, wrong or expired."""
+
+
 class ForbiddenError(Exception):
     """The caller is known but not allowed to do this, e.g. a Free user."""
 
@@ -105,6 +109,10 @@ def handle_gone(error: LinkGoneError) -> HandlerResult:
     return error_body("gone", str(error)), 410
 
 
+def handle_authentication_error(error: AuthenticationError) -> HandlerResult:
+    return error_body("unauthorized", str(error)), 401
+
+
 def handle_forbidden(error: ForbiddenError) -> HandlerResult:
     return error_body("forbidden", str(error)), 403
 
@@ -172,6 +180,7 @@ def register_error_handlers(api: Api) -> None:
     api.errorhandler(ShortCodeNotFoundError)(handle_not_found)
     api.errorhandler(LinkGoneError)(handle_gone)
     api.errorhandler(ForbiddenError)(handle_forbidden)
+    api.errorhandler(AuthenticationError)(handle_authentication_error)
     api.errorhandler(ConflictError)(handle_conflict)
     api.errorhandler(ShortCodeGenerationError)(handle_generation_error)
     api.errorhandler(OperationalError)(handle_storage_error)

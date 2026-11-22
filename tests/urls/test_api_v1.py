@@ -8,22 +8,24 @@ from sqlalchemy import func, select
 
 from app.core.extensions import db
 from app.urls.models import URL, Tag
-from app.users.models import User
+from app.users.models import Tier, User
 from tests.conftest import StatementRecorder
 from tests.contract import assert_matches_schema
-from tests.factories import create_url, create_user
+from tests.factories import bearer, create_url, create_user
 
 URLS = "/api/v1/urls/"
 LONG_URL = "https://www.example.com/spring-sale"
 PASSWORD = "correct horse battery staple"
-ALICE = ("alice", PASSWORD)
+ALICE = "alice"
 
 
 @pytest.fixture(autouse=True)
 def users(app: Flask) -> None:
     with app.app_context():
-        create_user("alice")
-        create_user("bob")
+        # Premium, so they may use custom aliases; Free-plan rules are in test_tiers.py.
+        create_user("alice", tier=Tier.PREMIUM, is_premium=True)
+        create_user("bob", tier=Tier.PREMIUM, is_premium=True)
+        create_user("admin", tier=Tier.ADMIN)
 
 
 def user_id(app: Flask, username: str) -> int:
@@ -33,12 +35,22 @@ def user_id(app: Flask, username: str) -> int:
         ).one()
 
 
-def create(client: FlaskClient, auth: tuple[str, str] = ALICE, **fields: Any) -> Any:
-    return client.post(URLS, json={"url": LONG_URL, **fields}, auth=auth)
+def create(client: FlaskClient, user: str = ALICE, **fields: Any) -> Any:
+    return client.post(
+        URLS, json={"url": LONG_URL, **fields}, headers=bearer(client, user)
+    )
 
 
-def get(client: FlaskClient, path: str, auth: tuple[str, str] = ALICE) -> Any:
-    return client.get(path, auth=auth)
+def get(client: FlaskClient, path: str, user: str = ALICE) -> Any:
+    return client.get(path, headers=bearer(client, user))
+
+
+def create_anonymous(client: FlaskClient) -> str:
+    """A URL made through the Module 5 endpoint, which has no owner."""
+    body = client.post("/api/urls", json={"url": LONG_URL}).json
+    assert body is not None
+    code: str = body["short_code"]
+    return code
 
 
 def future(days: int = 30) -> str:
@@ -58,7 +70,7 @@ def test_endpoints_require_authentication(
     response = getattr(client, method)(path, json={"url": LONG_URL})
 
     assert response.status_code == 401
-    assert response.headers["WWW-Authenticate"].startswith("Basic")
+    assert response.headers["WWW-Authenticate"].startswith("Bearer")
 
 
 # ---- create -----------------------------------------------------------------
@@ -110,7 +122,7 @@ def test_create_with_alias_expiry_and_tags(app: Flask, client: FlaskClient) -> N
 def test_alias_must_be_unique(client: FlaskClient) -> None:
     create(client, custom_alias="spring-sale")
 
-    response = create(client, auth=("bob", PASSWORD), custom_alias="spring-sale")
+    response = create(client, user="bob", custom_alias="spring-sale")
 
     assert response.status_code == 409
     assert response.json["error"]["details"][0]["field"] == "custom_alias"
@@ -157,7 +169,7 @@ def test_create_validates_fields(
 
 def test_list_shows_only_my_urls(client: FlaskClient) -> None:
     mine = create(client).json["short_code"]
-    create(client, auth=("bob", PASSWORD))
+    create(client, user="bob")
 
     response = get(client, URLS)
 
@@ -222,18 +234,112 @@ def test_get_returns_my_url(client: FlaskClient) -> None:
     assert response.json["tags"] == ["Social"]
 
 
-@pytest.mark.parametrize("owner", ["bob", None], ids=["other user", "unknown"])
-def test_get_other_or_unknown_url_is_not_found(
-    client: FlaskClient, owner: str | None
-) -> None:
-    code = "zzzzzzz"
-    if owner is not None:
-        code = create(client, auth=(owner, PASSWORD)).json["short_code"]
+def test_any_user_can_read_another_users_url(client: FlaskClient) -> None:
+    # IsOwnerOrReadOnly: reading is allowed for every authenticated user.
+    code = create(client, user="bob").json["short_code"]
 
     response = get(client, f"{URLS}{code}/")
 
-    # 404, not 403: the response does not reveal that someone else owns the code.
-    assert response.status_code == 404
+    assert response.status_code == 200
+    assert response.json["owner"] == "bob"
+
+
+def test_unknown_code_is_not_found(client: FlaskClient) -> None:
+    assert get(client, f"{URLS}zzzzzzz/").status_code == 404
+
+
+def test_anonymous_module5_urls_are_readable_with_no_owner(
+    client: FlaskClient,
+) -> None:
+    code = create_anonymous(client)
+
+    response = get(client, f"{URLS}{code}/")
+
+    assert response.status_code == 200
+    assert response.json["owner"] is None
+    assert_matches_schema(client, "UrlResponse", response.json)
+
+
+# ---- tag search -------------------------------------------------------------
+
+
+@pytest.fixture
+def tagged(client: FlaskClient) -> dict[str, str]:
+    """Four of alice's URLs: two marketing, one social, one untagged."""
+    codes = {}
+    for name, tags in (
+        ("launch", ["Marketing", "Social"]),
+        ("promo", ["marketing"]),
+        ("social", ["Social"]),
+        ("plain", []),
+    ):
+        codes[name] = create(client, tags=tags).json["short_code"]
+    return codes
+
+
+def listed(client: FlaskClient, query: str) -> Any:
+    body = get(client, f"{URLS}?{query}").json
+    assert body is not None
+    return body
+
+
+@pytest.mark.usefixtures("tagged")
+@pytest.mark.parametrize("tag", ["Marketing", "marketing", "MARKETING"])
+def test_list_filters_by_tag_case_insensitively(client: FlaskClient, tag: str) -> None:
+    body = listed(client, f"tag={tag}")
+
+    assert body["total"] == 2
+    assert all("Marketing" in item["tags"] for item in body["items"])
+
+
+def test_a_url_with_several_tags_is_listed_once(
+    client: FlaskClient, tagged: dict[str, str]
+) -> None:
+    body = listed(client, "tag=Social")
+
+    codes = [item["short_code"] for item in body["items"]]
+    assert sorted(codes) == sorted([tagged["launch"], tagged["social"]])
+    assert body["total"] == 2
+
+
+def test_tag_filter_combines_with_status(
+    client: FlaskClient, tagged: dict[str, str]
+) -> None:
+    client.delete(f"{URLS}{tagged['promo']}/", headers=bearer(client, ALICE))
+
+    body = listed(client, "tag=marketing&status=active")
+
+    assert [item["short_code"] for item in body["items"]] == [tagged["launch"]]
+
+
+@pytest.mark.usefixtures("tagged")
+def test_unknown_tag_lists_nothing(client: FlaskClient) -> None:
+    body = listed(client, "tag=Nonexistent")
+
+    assert (body["items"], body["total"]) == ([], 0)
+
+
+@pytest.mark.usefixtures("tagged")
+def test_tag_filter_only_searches_my_urls(client: FlaskClient) -> None:
+    create(client, user="bob", tags=["Marketing"])
+
+    assert listed(client, "tag=Marketing")["total"] == 2
+
+
+def test_empty_tag_is_rejected(client: FlaskClient) -> None:
+    assert get(client, f"{URLS}?tag=").status_code == 422
+
+
+@pytest.mark.usefixtures("tagged")
+def test_tag_filter_keeps_a_fixed_number_of_queries(
+    client: FlaskClient, sql_statements: StatementRecorder
+) -> None:
+    headers = bearer(client, ALICE)  # outside the block: only the app's queries count
+    with sql_statements() as statements:
+        client.get(f"{URLS}?tag=Marketing", headers=headers)
+
+    assert len(statements) == 4
+    assert "EXISTS" in statements[2]
 
 
 # ---- N+1 prevention ---------------------------------------------------------
@@ -253,8 +359,11 @@ def test_list_runs_a_fixed_number_of_queries(
 ) -> None:
     create_tagged_urls(app, count)
 
+    headers = bearer(client, ALICE)  # outside the block: only the app's queries count
     with sql_statements() as statements:
-        body = get(client, URLS).json
+        body = client.get(URLS, headers=headers).json
+
+    assert body is not None
 
     assert len(body["items"]) == count
     assert all(
@@ -286,10 +395,8 @@ def test_without_eager_loading_queries_grow_with_the_rows(
 # ---- update (PUT) -----------------------------------------------------------
 
 
-def put(
-    client: FlaskClient, code: str, auth: tuple[str, str] = ALICE, **body: Any
-) -> Any:
-    return client.put(f"{URLS}{code}/", json=body, auth=auth)
+def put(client: FlaskClient, code: str, user: str = ALICE, **body: Any) -> Any:
+    return client.put(f"{URLS}{code}/", json=body, headers=bearer(client, user))
 
 
 def test_put_replaces_every_editable_field(client: FlaskClient) -> None:
@@ -323,7 +430,7 @@ def test_put_resets_optional_fields_that_are_left_out(client: FlaskClient) -> No
     code = create(
         client, custom_alias="spring-sale", expires_at=future(), tags=["Social"]
     ).json["short_code"]
-    client.delete(f"{URLS}{code}/", auth=ALICE)
+    client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE))
 
     body = put(client, code, url=LONG_URL).json
 
@@ -342,7 +449,7 @@ def test_put_can_keep_its_own_alias(client: FlaskClient) -> None:
 
 
 def test_put_cannot_take_another_urls_alias_or_code(client: FlaskClient) -> None:
-    other = create(client, auth=("bob", PASSWORD), custom_alias="bobs-link").json
+    other = create(client, user="bob", custom_alias="bobs-link").json
     code = create(client).json["short_code"]
 
     for alias in ("bobs-link", other["short_code"]):
@@ -374,7 +481,7 @@ def test_put_keeps_click_history(app: Flask, client: FlaskClient) -> None:
 def test_delete_deactivates_but_keeps_the_url(client: FlaskClient) -> None:
     code = create(client).json["short_code"]
 
-    response = client.delete(f"{URLS}{code}/", auth=ALICE)
+    response = client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE))
 
     assert response.status_code == 204
     assert response.get_data() == b""
@@ -387,9 +494,12 @@ def test_delete_deactivates_but_keeps_the_url(client: FlaskClient) -> None:
 
 def test_delete_twice_is_harmless(client: FlaskClient) -> None:
     code = create(client).json["short_code"]
-    client.delete(f"{URLS}{code}/", auth=ALICE)
+    client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE))
 
-    assert client.delete(f"{URLS}{code}/", auth=ALICE).status_code == 204
+    assert (
+        client.delete(f"{URLS}{code}/", headers=bearer(client, ALICE)).status_code
+        == 204
+    )
 
 
 # ---- ownership and authentication for PUT / DELETE --------------------------
@@ -397,15 +507,44 @@ def test_delete_twice_is_harmless(client: FlaskClient) -> None:
 
 @pytest.mark.parametrize("method", ["put", "delete"])
 def test_cannot_change_another_users_url(client: FlaskClient, method: str) -> None:
-    code = create(client, auth=("bob", PASSWORD)).json["short_code"]
+    code = create(client, user="bob").json["short_code"]
 
     response = getattr(client, method)(
-        f"{URLS}{code}/", json={"url": LONG_URL}, auth=ALICE
+        f"{URLS}{code}/", json={"url": LONG_URL}, headers=bearer(client, ALICE)
     )
 
-    assert response.status_code == 404
-    bobs = client.get(f"{URLS}{code}/", auth=("bob", PASSWORD)).json
+    assert response.status_code == 403
+    assert response.json["error"] == {
+        "code": "forbidden",
+        "message": "You can only change your own URLs.",
+    }
+    bobs = client.get(f"{URLS}{code}/", headers=bearer(client, "bob")).json
     assert bobs is not None and bobs["is_active"] is True
+    assert bobs["original_url"] == LONG_URL
+
+
+def test_admins_can_change_any_url(client: FlaskClient) -> None:
+    code = create(client, user="bob").json["short_code"]
+
+    updated = put(client, code, user="admin", url="https://example.org/moderated")
+    deleted = client.delete(f"{URLS}{code}/", headers=bearer(client, "admin"))
+
+    assert updated.status_code == 200
+    assert updated.json["owner"] == "bob"  # the owner does not change
+    assert deleted.status_code == 204
+
+
+def test_anonymous_urls_can_only_be_changed_by_admins(client: FlaskClient) -> None:
+    code = create_anonymous(client)
+
+    assert put(client, code, url=LONG_URL).status_code == 403
+    assert put(client, code, user="admin", url=LONG_URL).status_code == 200
+
+
+def test_unknown_code_is_404_before_permissions(client: FlaskClient) -> None:
+    response = put(client, "zzzzzzz", url=LONG_URL)
+
+    assert response.status_code == 404
 
 
 @pytest.mark.parametrize("method", ["put", "delete"])

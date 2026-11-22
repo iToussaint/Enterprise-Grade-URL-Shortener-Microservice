@@ -13,10 +13,12 @@ from app.analytics.geoip import GeoIPModule
 from app.api import api_bp
 from app.core.config import config_by_name
 from app.core.errors import register_app_error_handlers
-from app.core.extensions import db, migrate
+from app.core.extensions import db, jwt, limiter, migrate
 from app.core.middleware import register_request_logging
 from app.urls.redirects import redirects_bp
 from app.users.commands import users_cli
+
+MIN_JWT_SECRET_LENGTH = 32
 
 
 def create_app(
@@ -50,8 +52,18 @@ def create_app(
             app.wsgi_app, x_for=proxies, x_proto=proxies, x_host=proxies
         )
 
+    secret = app.config.get("JWT_SECRET_KEY") or ""
+    if len(secret) < MIN_JWT_SECRET_LENGTH:
+        # A missing or short key would let anyone forge tokens: refuse to start.
+        raise RuntimeError(
+            f"Set JWT_SECRET_KEY to a random value of at least {MIN_JWT_SECRET_LENGTH}"
+            " characters (see .env.example)."
+        )
+
     db.init_app(app)
     migrate.init_app(app, db)
+    jwt.init_app(app)
+    limiter.init_app(app)
 
     app.register_blueprint(api_bp)
     app.register_blueprint(redirects_bp)

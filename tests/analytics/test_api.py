@@ -10,10 +10,10 @@ from app.core.extensions import db
 from app.users.models import Tier
 from tests.conftest import StatementRecorder
 from tests.contract import assert_matches_schema
-from tests.factories import create_url, create_user
+from tests.factories import bearer, create_url, create_user
 
 PASSWORD = "correct horse battery staple"
-PREMIUM = ("alice", PASSWORD)
+PREMIUM = "alice"
 NEWS = "https://news.example.org/"
 
 
@@ -25,6 +25,7 @@ def data(app: Flask) -> None:
         alice = create_user("alice", tier=Tier.PREMIUM, is_premium=True)
         create_user("bob")
         create_user("carol", tier=Tier.PREMIUM, is_premium=True)
+        create_user("admin", tier=Tier.ADMIN, is_premium=True)
         url = create_url("stats01", owner=alice, click_count=6)
         visits = [
             # (when, ip, country, referrer)
@@ -44,8 +45,9 @@ def data(app: Flask) -> None:
         db.session.commit()
 
 
-def analytics(client: FlaskClient, query: str = "", auth: Any = PREMIUM) -> Any:
-    return client.get(f"/api/v1/analytics/stats01/?{query}", auth=auth)
+def analytics(client: FlaskClient, query: str = "", user: str | None = PREMIUM) -> Any:
+    headers = bearer(client, user) if user else {}
+    return client.get(f"/api/v1/analytics/stats01/?{query}", headers=headers)
 
 
 def test_report_counts_clicks_in_sql(client: FlaskClient) -> None:
@@ -100,18 +102,36 @@ def test_weekly_and_monthly_buckets(
 
 
 def test_free_accounts_get_403(client: FlaskClient) -> None:
-    response = analytics(client, auth=("bob", PASSWORD))
+    response = analytics(client, user="bob")
 
     assert response.status_code == 403
     assert response.json["error"]["code"] == "forbidden"
 
 
-def test_other_users_urls_are_not_found(client: FlaskClient) -> None:
-    assert analytics(client, auth=("carol", PASSWORD)).status_code == 404
+def test_premium_users_cannot_see_other_users_analytics(client: FlaskClient) -> None:
+    response = analytics(client, user="carol")
+
+    assert response.status_code == 403
+    assert response.json["error"]["message"] == (
+        "You can only view analytics for your own URLs."
+    )
+
+
+def test_admins_can_see_any_urls_analytics(client: FlaskClient) -> None:
+    response = analytics(client, user="admin")
+
+    assert response.status_code == 200
+    assert response.json["clicks"] == 5
+
+
+def test_unknown_code_is_not_found(client: FlaskClient) -> None:
+    response = client.get("/api/v1/analytics/zzzzzzz/", headers=bearer(client, PREMIUM))
+
+    assert response.status_code == 404
 
 
 def test_requires_authentication(client: FlaskClient) -> None:
-    assert analytics(client, auth=None).status_code == 401
+    assert analytics(client, user=None).status_code == 401
 
 
 @pytest.mark.parametrize("query", ["days=0", "days=366", "interval=year"])
@@ -122,8 +142,12 @@ def test_rejects_invalid_parameters(client: FlaskClient, query: str) -> None:
 def test_query_count_does_not_grow_with_clicks(
     app: Flask, client: FlaskClient, sql_statements: StatementRecorder
 ) -> None:
+    headers = bearer(
+        client, PREMIUM
+    )  # outside the blocks: only the app's queries count
+    url = "/api/v1/analytics/stats01/"
     with sql_statements() as before:
-        analytics(client)
+        client.get(url, headers=headers)
 
     with app.app_context():
         url_id = db.session.scalars(db.select(Click.url_id)).first()
@@ -134,7 +158,9 @@ def test_query_count_does_not_grow_with_clicks(
         db.session.commit()
 
     with sql_statements() as after:
-        body = analytics(client).json
+        body = client.get(url, headers=headers).json
+
+    assert body is not None
 
     assert body["clicks"] == 55
     # authentication, URL lookup, totals, time series, countries, referrers

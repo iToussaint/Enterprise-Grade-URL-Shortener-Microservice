@@ -14,8 +14,11 @@ class Tier(StrEnum):
     ADMIN = "Admin"
 
 
-# Tiers with Premium features, such as analytics.
+# Tiers with Premium features: unlimited URLs, custom aliases, analytics.
 PREMIUM_TIERS = frozenset({Tier.PREMIUM, Tier.ADMIN})
+
+# A Free account may have at most this many active (not expired) URLs.
+FREE_MAX_ACTIVE_URLS = 10
 
 
 class User(db.Model):  # type: ignore[name-defined]

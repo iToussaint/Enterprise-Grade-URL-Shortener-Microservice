@@ -12,8 +12,9 @@ api_bp = Blueprint("api", __name__, url_prefix="/api")
 API_DESCRIPTION = """
 Shorten long URLs and redirect short codes to the original URL.
 
-**Authentication.** Endpoints marked with a lock use HTTP Basic authentication:
-create an account with `POST /api/v1/auth/register/`, then use **Authorize**.
+**Authentication.** Endpoints marked with a lock need a JWT access token:
+register, log in with `POST /api/v1/auth/login/`, then use **Authorize** and
+enter `Bearer <access_token>`.
 
 **Error format.** Every error response has the same JSON shape:
 `{"error": {"code": "...", "message": "...", "details": [...]}}`.
@@ -30,8 +31,16 @@ api = Api(
     version="1.0",
     description=API_DESCRIPTION,
     doc="/docs",
-    # Adds the Authorize button; protected operations reference "basicAuth".
-    authorizations={"basicAuth": {"type": "basic"}},
+    # Adds the Authorize button; protected operations reference "bearerAuth".
+    # Swagger 2.0 has no bearer type, so the header is described as an API key.
+    authorizations={
+        "bearerAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "Authorization",
+            "description": "Enter: Bearer <access_token>",
+        }
+    },
 )
 api.add_namespace(urls_ns)
 api.add_namespace(auth_ns)

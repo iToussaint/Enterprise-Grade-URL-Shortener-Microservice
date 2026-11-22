@@ -1,3 +1,6 @@
+from flask_jwt_extended import JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import MetaData
@@ -23,3 +26,7 @@ db = SQLAlchemy(model_class=Base)
 # Batch mode is a workaround for SQLite's limited ALTER TABLE; PostgreSQL
 # does not need it, so migrations use plain operations.
 migrate = Migrate(render_as_batch=False)
+jwt = JWTManager()
+# No default limits: only the routes that ask for one are limited (login).
+# Clients are told apart by IP (behind trusted proxies, ProxyFix sets the real one).
+limiter = Limiter(key_func=get_remote_address)

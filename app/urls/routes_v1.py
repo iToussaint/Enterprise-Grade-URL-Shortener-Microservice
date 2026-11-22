@@ -6,6 +6,7 @@ from flask import Response, request, url_for
 from flask_restx import Namespace, Resource
 from injector import inject
 
+from app.auth.permissions import IsOwnerOrReadOnly
 from app.auth.security import current_user, login_required
 from app.core.errors import ErrorResponse
 from app.core.swagger import register_schema
@@ -22,7 +23,7 @@ from app.urls.service import UrlShortenerService
 ns = Namespace(
     "my-urls",
     path="/v1/urls",
-    description="Manage your own short URLs (HTTP Basic authentication)",
+    description="Manage your own short URLs (JWT access token)",
 )
 
 create_request_model = register_schema(ns, CreateUrlRequest)
@@ -45,6 +46,11 @@ LIST_PARAMS = {
         "enum": ["newest", "popular"],
         "default": "newest",
         "description": "popular: most clicked first.",
+    },
+    "tag": {
+        "in": "query",
+        "type": "string",
+        "description": "Only URLs with this tag (case-insensitive), e.g. Marketing.",
     },
     "page": {"in": "query", "type": "integer", "default": 1, "minimum": 1},
     "page_size": {
@@ -76,7 +82,7 @@ class OwnUrlResource(Resource):
 
 
 @ns.route("/")
-@ns.doc(security="basicAuth")
+@ns.doc(security="bearerAuth")
 @ns.response(401, "Missing or invalid credentials.", error_model)
 @ns.response(503, "The storage service is temporarily unavailable.", error_model)
 class OwnUrlCollection(OwnUrlResource):
@@ -86,13 +92,19 @@ class OwnUrlCollection(OwnUrlResource):
     def get(self) -> dict[str, Any]:
         """List your short URLs.
 
-        Filter with `status`, order with `sort`, and page through the results.
+        Filter with `status` and `tag`, order with `sort`, and page through the
+        results.
         Each URL's owner and tags are loaded with a fixed number of queries,
         however many URLs the page holds.
         """
         params = ListUrlsParams.model_validate(request.args.to_dict())
         urls, total = self._service.list_for(
-            current_user(), params.status, params.sort, params.page, params.page_size
+            current_user(),
+            params.status,
+            params.sort,
+            params.page,
+            params.page_size,
+            tag=params.tag,
         )
         return {
             "items": [self.to_response(url) for url in urls],
@@ -109,13 +121,19 @@ class OwnUrlCollection(OwnUrlResource):
         headers={"Location": "The URL of the new resource's details."},
     )
     @ns.response(400, "The request body is not valid JSON.", error_model)
+    @ns.response(
+        403,
+        "Free account: custom aliases need Premium, or 10 active URLs reached.",
+        error_model,
+    )
     @ns.response(409, "The custom alias is already taken.", error_model)
     @ns.response(415, "The Content-Type is not application/json.", error_model)
     @ns.response(422, "A field is missing or invalid.", error_model)
     def post(self) -> tuple[dict[str, Any], int, dict[str, str]]:
         """Create a short URL that you own.
 
-        Optionally set a custom alias, an expiry date and tags.
+        Optionally set an expiry date and tags. Free accounts: at most 10 active
+        URLs and no custom alias; Premium: unlimited, with custom aliases.
         """
         payload = CreateUrlRequest.model_validate(ns.payload)
         url = self._service.create_for(
@@ -133,33 +151,51 @@ class OwnUrlCollection(OwnUrlResource):
 
 @ns.route("/<string:short_code>/")
 @ns.param("short_code", "The URL's short code")
-@ns.doc(security="basicAuth")
+@ns.doc(security="bearerAuth")
 @ns.response(401, "Missing or invalid credentials.", error_model)
-@ns.response(404, "You have no URL with this code.", error_model)
+@ns.response(404, "No URL has this code.", error_model)
 @ns.response(503, "The storage service is temporarily unavailable.", error_model)
 class OwnUrlItem(OwnUrlResource):
+    permission = IsOwnerOrReadOnly()
+
+    def url_for_request(self, short_code: str) -> URL:
+        """Load the URL (404 if unknown), then check IsOwnerOrReadOnly (403)."""
+        url = self._service.get(short_code)
+        self.permission.check(request.method, current_user(), url)
+        return url
+
     @ns.response(200, "The URL's details.", url_response_model)
     def get(self, short_code: str) -> dict[str, Any]:
-        """Retrieve one of your short URLs."""
-        return self.to_response(self._service.get_for(current_user(), short_code))
+        """Retrieve a short URL's details.
+
+        Any logged-in user may read any URL; only its owner or an Admin may
+        change it (IsOwnerOrReadOnly).
+        """
+        return self.to_response(self.url_for_request(short_code))
 
     @ns.expect(update_request_model)
     @ns.response(200, "The updated URL.", url_response_model)
     @ns.response(400, "The request body is not valid JSON.", error_model)
+    @ns.response(
+        403,
+        "Not the owner or an Admin; or a Free account limit (alias, 10 active URLs).",
+        error_model,
+    )
     @ns.response(409, "The custom alias is already taken.", error_model)
     @ns.response(415, "The Content-Type is not application/json.", error_model)
     @ns.response(422, "A field is missing or invalid.", error_model)
     def put(self, short_code: str) -> dict[str, Any]:
-        """Replace one of your short URLs.
+        """Replace one of your short URLs (Admins: any URL).
 
         Send every field you want to keep: optional fields left out are reset
         (no alias, no expiry, no tags, active). The short code never changes.
         Set `is_active` to true to reactivate a deactivated URL.
         """
+        url = self.url_for_request(short_code)
         payload = UpdateUrlRequest.model_validate(ns.payload)
-        url = self._service.update_for(
+        url = self._service.update(
+            url,
             current_user(),
-            short_code,
             str(payload.url),
             custom_alias=payload.custom_alias,
             expires_at=payload.expires_at,
@@ -169,12 +205,13 @@ class OwnUrlItem(OwnUrlResource):
         return self.to_response(url)
 
     @ns.response(204, "Deactivated. The URL and its clicks are kept.")
+    @ns.response(403, "Only the owner or an Admin may change this URL.", error_model)
     def delete(self, short_code: str) -> Response:
-        """Deactivate one of your short URLs.
+        """Deactivate one of your short URLs (Admins: any URL).
 
         The link stops redirecting, but the URL and its click history are kept;
         it still appears in your list and can be reactivated with PUT.
         Deleting an already deactivated URL also returns 204.
         """
-        self._service.deactivate_for(current_user(), short_code)
+        self._service.deactivate(self.url_for_request(short_code))
         return Response(status=204)

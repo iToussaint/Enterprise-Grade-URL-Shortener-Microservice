@@ -10,6 +10,7 @@ from sqlalchemy import event, text
 from testcontainers.community.postgres import PostgresContainer
 
 from app import create_app
+from app.core.config import TestingConfig
 from app.core.extensions import db
 
 POSTGRES_IMAGE = "postgres:18-alpine"
@@ -25,6 +26,10 @@ def database_url() -> Iterator[str]:
         app = create_app("testing", {"SQLALCHEMY_DATABASE_URI": url})
         with app.app_context():
             upgrade()
+            # The seed migration adds default tags; remove them so the first test
+            # starts from empty tables like every other (tables are emptied after
+            # each test). The seed itself is tested in tests/core/test_migrations.py.
+            empty_all_tables()
             db.engine.dispose()
         yield url
 
@@ -42,9 +47,12 @@ def make_app(database_url: str) -> Iterator[AppFactory]:
     created: list[Flask] = []
 
     def factory(config_name: str | None = "testing", **settings: Any) -> Flask:
-        app = create_app(
-            config_name, {"SQLALCHEMY_DATABASE_URI": database_url, **settings}
-        )
+        defaults = {
+            "SQLALCHEMY_DATABASE_URI": database_url,
+            # Every profile needs a signing key; only TestingConfig defines one.
+            "JWT_SECRET_KEY": TestingConfig.JWT_SECRET_KEY,
+        }
+        app = create_app(config_name, {**defaults, **settings})
         created.append(app)
         return app
 

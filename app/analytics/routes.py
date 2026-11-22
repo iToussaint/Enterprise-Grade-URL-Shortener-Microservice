@@ -6,11 +6,11 @@ from injector import inject
 
 from app.analytics.schemas import AnalyticsParams, AnalyticsResponse
 from app.analytics.service import AnalyticsService
+from app.auth.permissions import require_analytics_access, require_premium
 from app.auth.security import current_user, login_required
-from app.core.errors import ErrorResponse, ForbiddenError
+from app.core.errors import ErrorResponse
 from app.core.swagger import register_schema
 from app.urls.service import UrlShortenerService
-from app.users.models import PREMIUM_TIERS
 
 ns = Namespace(
     "analytics",
@@ -42,7 +42,7 @@ PARAMS = {
 
 @ns.route("/<string:short_code>/")
 @ns.param("short_code", "The URL's short code")
-@ns.doc(security="basicAuth")
+@ns.doc(security="bearerAuth")
 class UrlAnalytics(Resource):
     method_decorators = [login_required]
 
@@ -57,20 +57,23 @@ class UrlAnalytics(Resource):
     @ns.doc(params=PARAMS)
     @ns.response(200, "Click statistics for the period.", analytics_model)
     @ns.response(401, "Missing or invalid credentials.", error_model)
-    @ns.response(403, "Analytics require a Premium account.", error_model)
-    @ns.response(404, "You have no URL with this code.", error_model)
+    @ns.response(
+        403, "Not Premium, or not your URL (Admins see every URL).", error_model
+    )
+    @ns.response(404, "No URL has this code.", error_model)
     @ns.response(422, "A query parameter is invalid.", error_model)
     @ns.response(503, "The storage service is temporarily unavailable.", error_model)
     def get(self, short_code: str) -> dict[str, Any]:
         """Click analytics for one of your URLs.
 
         Clicks over time (zero-filled), per country and per referrer, plus
-        unique visitors, all computed in the database. Premium and Admin only.
+        unique visitors, all computed in the database. Premium owners see their
+        own URLs; Admins see every URL.
         """
         user = current_user()
-        if user.tier not in PREMIUM_TIERS:
-            raise ForbiddenError("Analytics require a Premium account.")
+        require_premium(user)
         params = AnalyticsParams.model_validate(request.args.to_dict())
-        url = self._urls.get_for(user, short_code, with_details=False)
+        url = self._urls.get(short_code, with_details=False)
+        require_analytics_access(user, url)
         report = self._analytics.report(url, params.days, params.interval)
         return AnalyticsResponse.model_validate(report).model_dump(mode="json")

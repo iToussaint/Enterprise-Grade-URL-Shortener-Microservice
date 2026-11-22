@@ -17,6 +17,8 @@ services:
       # Inside the Compose network each service is reached by its name.
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-urlshortener}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-urlshortener}
       REDIS_HOST: redis
+      # Signs the JWT tokens; Compose stops with a clear message if it is missing.
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}
     ports:
       - "8000:8000"
     volumes:

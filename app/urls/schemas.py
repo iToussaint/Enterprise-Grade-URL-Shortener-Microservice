@@ -140,7 +140,9 @@ class UrlResponse(BaseModel):
     short_url: str = Field(description="The full short URL that redirects.")
     original_url: str
     custom_alias: str | None
-    owner: str = Field(description="The owner's username.")
+    owner: str | None = Field(
+        description="The owner's username; null for anonymous (Module 5) URLs."
+    )
     tags: list[str]
     is_active: bool
     expires_at: datetime | None
@@ -159,7 +161,7 @@ class UrlResponse(BaseModel):
             short_url=short_url,
             original_url=url.original_url,
             custom_alias=url.custom_alias,
-            owner=url.owner.username if url.owner else "",
+            owner=url.owner.username if url.owner else None,
             tags=sorted(tag.name for tag in url.tags),
             is_active=url.is_active,
             expires_at=url.expires_at,
@@ -176,6 +178,7 @@ class ListUrlsParams(BaseModel):
 
     status: Literal["all", "active", "expired"] = "all"
     sort: Literal["newest", "popular"] = "newest"
+    tag: TagName | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
 
