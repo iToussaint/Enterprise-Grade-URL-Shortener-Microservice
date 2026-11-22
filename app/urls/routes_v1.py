@@ -110,13 +110,19 @@ class OwnUrlCollection(OwnUrlResource):
         headers={"Location": "The URL of the new resource's details."},
     )
     @ns.response(400, "The request body is not valid JSON.", error_model)
+    @ns.response(
+        403,
+        "Free account: custom aliases need Premium, or 10 active URLs reached.",
+        error_model,
+    )
     @ns.response(409, "The custom alias is already taken.", error_model)
     @ns.response(415, "The Content-Type is not application/json.", error_model)
     @ns.response(422, "A field is missing or invalid.", error_model)
     def post(self) -> tuple[dict[str, Any], int, dict[str, str]]:
         """Create a short URL that you own.
 
-        Optionally set a custom alias, an expiry date and tags.
+        Optionally set an expiry date and tags. Free accounts: at most 10 active
+        URLs and no custom alias; Premium: unlimited, with custom aliases.
         """
         payload = CreateUrlRequest.model_validate(ns.payload)
         url = self._service.create_for(
@@ -159,7 +165,11 @@ class OwnUrlItem(OwnUrlResource):
     @ns.expect(update_request_model)
     @ns.response(200, "The updated URL.", url_response_model)
     @ns.response(400, "The request body is not valid JSON.", error_model)
-    @ns.response(403, "Only the owner or an Admin may change this URL.", error_model)
+    @ns.response(
+        403,
+        "Not the owner or an Admin; or a Free account limit (alias, 10 active URLs).",
+        error_model,
+    )
     @ns.response(409, "The custom alias is already taken.", error_model)
     @ns.response(415, "The Content-Type is not application/json.", error_model)
     @ns.response(422, "A field is missing or invalid.", error_model)
@@ -174,6 +184,7 @@ class OwnUrlItem(OwnUrlResource):
         payload = UpdateUrlRequest.model_validate(ns.payload)
         url = self._service.update(
             url,
+            current_user(),
             str(payload.url),
             custom_alias=payload.custom_alias,
             expires_at=payload.expires_at,

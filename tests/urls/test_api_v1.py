@@ -22,8 +22,9 @@ ALICE = "alice"
 @pytest.fixture(autouse=True)
 def users(app: Flask) -> None:
     with app.app_context():
-        create_user("alice")
-        create_user("bob")
+        # Premium, so they may use custom aliases; Free-plan rules are in test_tiers.py.
+        create_user("alice", tier=Tier.PREMIUM, is_premium=True)
+        create_user("bob", tier=Tier.PREMIUM, is_premium=True)
         create_user("admin", tier=Tier.ADMIN)
 
 
