@@ -6,12 +6,12 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    HttpUrl,
     StringConstraints,
     field_validator,
 )
 
 from app.urls.models import CUSTOM_ALIAS_MAX_LENGTH, URL
+from app.urls.sanitize import SafeHttpUrl
 
 # Path segments used by other routes; an alias must not shadow them.
 RESERVED_CODES = frozenset({"api", "static", "swaggerui"})
@@ -24,7 +24,10 @@ class ShortenRequest(BaseModel):
         }
     )
 
-    url: HttpUrl = Field(description="The long URL to shorten. Must be http or https.")
+    url: SafeHttpUrl = Field(
+        description="The long URL to shorten: http or https, no spaces, no credentials, "
+        "not a link to this service."
+    )
 
 
 class ShortenResponse(BaseModel):
@@ -62,7 +65,10 @@ class CreateUrlRequest(BaseModel):
         }
     )
 
-    url: HttpUrl = Field(description="The long URL to shorten. Must be http or https.")
+    url: SafeHttpUrl = Field(
+        description="The long URL to shorten: http or https, no spaces, no credentials, "
+        "not a link to this service."
+    )
     custom_alias: str | None = Field(
         default=None,
         min_length=3,
@@ -178,6 +184,7 @@ class ListUrlsParams(BaseModel):
 
     status: Literal["all", "active", "expired"] = "all"
     sort: Literal["newest", "popular"] = "newest"
+    tag: TagName | None = None
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=20, ge=1, le=100)
 

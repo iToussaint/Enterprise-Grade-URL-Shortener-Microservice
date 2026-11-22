@@ -26,6 +26,10 @@ def database_url() -> Iterator[str]:
         app = create_app("testing", {"SQLALCHEMY_DATABASE_URI": url})
         with app.app_context():
             upgrade()
+            # The seed migration adds default tags; remove them so the first test
+            # starts from empty tables like every other (tables are emptied after
+            # each test). The seed itself is tested in tests/core/test_migrations.py.
+            empty_all_tables()
             db.engine.dispose()
         yield url
 
